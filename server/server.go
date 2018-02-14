@@ -1,0 +1,145 @@
+package server
+
+import (
+	"context"
+
+	"fmt"
+
+	log "github.com/Sirupsen/logrus"
+	"github.com/gogo/protobuf/proto"
+	"github.com/golang/protobuf/ptypes/empty"
+	"github.com/golang/protobuf/ptypes/wrappers"
+	"github.com/sky-uk/merlin/reconciler"
+	"github.com/sky-uk/merlin/store"
+	"github.com/sky-uk/merlin/types"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+type server struct {
+	store      store.Store
+	reconciler reconciler.Reconciler
+}
+
+// New merlin server implementation.
+func New(store store.Store, reconciler reconciler.Reconciler) types.MerlinServer {
+	return &server{
+		store:      store,
+		reconciler: reconciler,
+	}
+}
+
+var (
+	emptyResponse = &empty.Empty{}
+)
+
+func validateService(service *types.VirtualService) error {
+	if len(service.Id) == 0 {
+		return status.Error(codes.InvalidArgument, "service id required")
+	}
+	if service.Key == nil {
+		return status.Error(codes.InvalidArgument, "service ip:port:protocol key required")
+	}
+	if len(service.Key.Ip) == 0 {
+		return status.Error(codes.InvalidArgument, "service IP required")
+	}
+	if service.Key.Port == 0 {
+		return status.Error(codes.InvalidArgument, "service port required")
+	}
+	if service.Key.Protocol == 0 {
+		return status.Error(codes.InvalidArgument, "service protocol required")
+	}
+	if _, ok := types.Protocol_name[int32(service.Key.Protocol)]; !ok {
+		return status.Errorf(codes.InvalidArgument, "unrecognized protocol %d", service.Key.Protocol)
+	}
+	return nil
+}
+
+func (s *server) CreateService(ctx context.Context, service *types.VirtualService) (*empty.Empty, error) {
+	if err := validateService(service); err != nil {
+		return emptyResponse, err
+	}
+
+	prev, err := s.store.GetService(ctx, service.Id)
+	if err != nil {
+		return emptyResponse, fmt.Errorf("failed to check service exists: %v", err)
+	}
+	if prev != nil {
+		return emptyResponse, status.Errorf(codes.InvalidArgument, "service %s already exists", service.Id)
+	}
+
+	if err := s.store.PutService(ctx, service); err != nil {
+		return emptyResponse, fmt.Errorf("failed to create service: %v", err)
+	}
+
+	s.reconciler.Sync()
+
+	log.Infof("Created %v", service)
+	return emptyResponse, nil
+}
+
+func (s *server) UpdateService(ctx context.Context, update *types.VirtualService) (*empty.Empty, error) {
+	prev, err := s.store.GetService(ctx, update.Id)
+	if err != nil {
+		return emptyResponse, fmt.Errorf("failed to check server exists: %v", err)
+	}
+	if prev == nil {
+		return emptyResponse, status.Errorf(codes.InvalidArgument, "service %s doesn't exist", update.Id)
+	}
+
+	next := proto.Clone(prev).(*types.VirtualService)
+	// clear flags so they are replaced
+	if len(update.Config.Flags) > 0 {
+		next.Config.Flags = nil
+	}
+	proto.Merge(next.Config, update.Config)
+
+	if proto.Equal(prev, next) {
+		log.Infof("No update of %s", update.Id)
+		return emptyResponse, nil
+	}
+
+	if err := s.store.PutService(ctx, next); err != nil {
+		return emptyResponse, fmt.Errorf("failed to update service: %v", err)
+	}
+
+	s.reconciler.Sync()
+
+	log.Infof("Updated %v", next)
+	return emptyResponse, nil
+}
+
+func (s *server) DeleteService(ctx context.Context, wrappedID *wrappers.StringValue) (*empty.Empty, error) {
+	id := wrappedID.GetValue()
+	if err := s.store.DeleteService(ctx, id); err != nil {
+		return emptyResponse, fmt.Errorf("failed to delete service: %v", err)
+	}
+	s.reconciler.Sync()
+	log.Infof("Deleted %s", id)
+	return emptyResponse, nil
+}
+
+func (s *server) CreateServer(context.Context, *types.RealServer) (*empty.Empty, error) {
+	return nil, nil
+}
+
+func (s *server) UpdateServer(context.Context, *types.RealServer) (*empty.Empty, error) {
+	return nil, nil
+}
+
+func (s *server) DeleteServer(context.Context, *types.RealServer) (*empty.Empty, error) {
+	return nil, nil
+}
+
+func (s *server) List(ctx context.Context, _ *empty.Empty) (*types.ListResponse, error) {
+	svcs, err := s.store.ListServices(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp types.ListResponse
+	for _, svc := range svcs {
+		resp.Items = append(resp.Items, &types.ListResponse_Item{Service: svc})
+	}
+	return &resp, nil
+}

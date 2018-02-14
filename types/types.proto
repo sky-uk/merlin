@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+package types;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/wrappers.proto";
+
+service Merlin {
+    rpc CreateService (VirtualService) returns (google.protobuf.Empty) {}
+    rpc UpdateService (VirtualService) returns (google.protobuf.Empty) {}
+    rpc DeleteService (google.protobuf.StringValue) returns (google.protobuf.Empty) {}
+    rpc CreateServer (RealServer) returns (google.protobuf.Empty) {}
+    rpc UpdateServer (RealServer) returns (google.protobuf.Empty) {}
+    rpc DeleteServer (RealServer) returns (google.protobuf.Empty) {}
+    rpc List (google.protobuf.Empty) returns (ListResponse) {}
+}
+
+enum Protocol {
+    UNSET = 0;
+    TCP = 1;
+    UDP = 2;
+}
+
+message VirtualService {
+    message Key {
+        string ip = 1;
+        uint32 port = 2;
+        Protocol protocol = 3;
+    }
+
+    message Config {
+        string scheduler = 1;
+        repeated string flags = 2;
+    }
+
+    // ID is a unique identifier of this virtual service to associate it with real servers.
+    string id = 1;
+    // Key is the identifying part in IPVS.
+    Key key = 2;
+    // Config is the configurable part in IPVS.
+    Config config = 3;
+}
+
+message RealServer {
+    message Key {
+        string ip = 1;
+        uint32 port = 2;
+    }
+
+    message Config {
+        uint32 weight = 1;
+        string forward = 2;
+    }
+
+    message Healthcheck {
+        string target = 1;
+        uint32 timeout = 2;
+        uint32 interval = 3;
+        uint32 healthy_threshold = 4;
+        uint32 unhealthy_threshold = 5;
+    }
+
+    // ServiceID is the id of the virtual service to associate this real server with.
+    string serviceID = 1;
+    // Key is the identifying part in IPVS.
+    Key key = 2;
+    // Config is the configurable part in IPVS.
+    Config config = 3;
+    // Healthcheck is the check done by merlin against this real server.
+    Healthcheck healthcheck = 4;
+}
+
+message ListResponse {
+    message Item {
+        VirtualService service = 1;
+        repeated RealServer servers = 2;
+    }
+    repeated Item items = 1;
+}
