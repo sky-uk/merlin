@@ -1,0 +1,240 @@
+// Package e2e sets up end to end tests with a stubbed IPVS so it can run in build environments.
+// The main purpose is to test the client/server -> store CRUD functionality.
+// The actual specs are located in api/ and meradm/.
+package e2e
+
+import (
+	"os"
+
+	"io/ioutil"
+
+	"os/exec"
+
+	"bytes"
+	"strings"
+
+	"fmt"
+
+	"strconv"
+
+	"crypto/sha256"
+	"io"
+	"net"
+	"net/http"
+	"syscall"
+	"time"
+
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+)
+
+const (
+	etcdDownloadURL    = "https://github.com/coreos/etcd/releases/download/v2.3.8/etcd-v2.3.8-linux-amd64.tar.gz"
+	etcdExpandedPath   = "etcd-v2.3.8-linux-amd64/"
+	etcdDownloadSha256 = "3431112f97105733aabb95816df99e44beabed2cc96201679e3b3b830ac35282"
+	// assumes all specs run in subfolders of e2e
+	workingDir  = "../.."
+	buildDir    = workingDir + "/build"
+	etcdBinary  = buildDir + "/etcd"
+	etcdTarball = buildDir + "/etcd.tar.gz"
+)
+
+var (
+	etcdListenPort   string
+	etcdPeerPort     string
+	merlinPort       string
+	merlinHealthPort string
+	dataDir          string
+	etcd             *exec.Cmd
+	merlin           *exec.Cmd
+)
+
+func MeradmList() []string {
+	return strings.Split(strings.TrimSpace(Meradm("list")), "\n")
+}
+
+func Meradm(args ...string) string {
+	out, err := Meradm2(args...)
+	Expect(err).ToNot(HaveOccurred())
+	return out
+}
+
+func Meradm2(args ...string) (string, error) {
+	args = append(args, "-H=localhost", "-P="+merlinPort)
+	c := exec.Command("meradm", args...)
+	c.Stderr = os.Stderr
+	var output bytes.Buffer
+	c.Stdout = &output
+	fmt.Printf("-> %v\n", c.Args)
+	err := c.Run()
+	out := output.String()
+	fmt.Printf("<- %s(%v)\n", out, err)
+	return out, err
+}
+
+func init() {
+	if err := os.Mkdir(buildDir, 0755); err != nil && !os.IsExist(err) {
+		panic(err)
+	}
+	if _, err := os.Stat(etcdBinary); os.IsNotExist(err) {
+		downloadEtcdBinary()
+	}
+	cmd := exec.Command("make", "install")
+	cmd.Dir = workingDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		fmt.Println(string(out))
+		panic(err)
+	}
+}
+
+func downloadEtcdBinary() {
+	fmt.Fprintln(os.Stderr, "Downloading etcd binary from "+etcdDownloadURL)
+	func() {
+		out, err := os.Create(etcdTarball)
+		if err != nil {
+			panic(err)
+		}
+		defer out.Close()
+		resp, err := http.Get(etcdDownloadURL)
+		if err != nil {
+			panic(err)
+		}
+		defer resp.Body.Close()
+		if _, err = io.Copy(out, resp.Body); err != nil {
+			panic(err)
+		}
+	}()
+	func() {
+		fmt.Fprintln(os.Stderr, "Verifying checksum")
+		f, err := os.Open(etcdTarball)
+		if err != nil {
+			panic(err)
+		}
+		defer f.Close()
+
+		h := sha256.New()
+		if _, err := io.Copy(h, f); err != nil {
+			panic(err)
+		}
+		hs := fmt.Sprintf("%x", h.Sum(nil))
+		if hs != etcdDownloadSha256 {
+			panic("invalid sha256 sum on etcd tarball " + etcdTarball)
+		}
+	}()
+	fmt.Fprintln(os.Stderr, "Expanding etcd binary into "+buildDir)
+	c := exec.Command("/bin/sh", "-c", "tar xzvf "+etcdTarball+" && cp "+etcdExpandedPath+"etcd* "+buildDir)
+	c.Dir = buildDir
+	if out, err := c.CombinedOutput(); err != nil {
+		fmt.Fprintln(os.Stderr, string(out))
+		panic(err)
+	}
+}
+
+func StartEtcd() {
+	var err error
+	dataDir, err = ioutil.TempDir(buildDir, "")
+	if err != nil {
+		panic(err)
+	}
+
+	ports := findFreePorts(2)
+	etcdListenPort = strconv.Itoa(ports[0])
+	etcdPeerPort = strconv.Itoa(ports[1])
+
+	etcd = exec.Command(etcdBinary,
+		"-name=etcd0",
+		"-data-dir="+dataDir,
+		"-advertise-client-urls=http://127.0.0.1:"+etcdListenPort,
+		"-listen-client-urls=http://0.0.0.0:"+etcdListenPort,
+		"-initial-advertise-peer-urls=http://127.0.0.1:"+etcdPeerPort,
+		"-listen-peer-urls=http://0.0.0.0:"+etcdPeerPort,
+		"-initial-cluster-token=etcd-cluster-1",
+		"-initial-cluster=etcd0=http://127.0.0.1:"+etcdPeerPort,
+		"-initial-cluster-state=new")
+	etcd.Stdout = os.Stdout
+	etcd.Stderr = os.Stderr
+	if err := etcd.Start(); err != nil {
+		panic(err)
+	}
+	waitForServerToStart("etcd", etcdListenPort, "/health")
+}
+
+func StopEtcd() {
+	stopServer(etcd)
+	os.RemoveAll(dataDir)
+}
+
+func MerlinPort() string {
+	return merlinPort
+}
+
+func StartMerlin() {
+	ports := findFreePorts(2)
+	merlinPort = strconv.Itoa(ports[0])
+	merlinHealthPort = strconv.Itoa(ports[1])
+
+	merlin = exec.Command("merlin",
+		"-port="+merlinPort,
+		"-health-port="+merlinHealthPort,
+		"-store-endpoints=http://127.0.0.1:"+etcdListenPort,
+		"-reconcile=false")
+	merlin.Stdout = os.Stdout
+	merlin.Stderr = os.Stderr
+	if err := merlin.Start(); err != nil {
+		Fail(err.Error())
+	}
+	waitForServerToStart("merlin", merlinHealthPort, "/health")
+}
+
+func StopMerlin() {
+	stopServer(merlin)
+}
+
+func waitForServerToStart(name, port, healthPath string) {
+	fmt.Fprintf(os.Stderr, "waiting for %s to come up...\n", name)
+	const maxTries = 20
+	const delay = 100 * time.Millisecond
+	for i := 0; i < maxTries; i++ {
+		var up bool
+		func() {
+			resp, err := http.Get("http://localhost:" + port + healthPath)
+			if err != nil {
+				return
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != 200 {
+				return
+			}
+			up = true
+		}()
+		if up {
+			fmt.Fprintf(os.Stderr, "%s is up\n", name)
+			return
+		}
+		time.Sleep(delay)
+	}
+	panic(name + " did not start up")
+}
+
+func stopServer(cmd *exec.Cmd) {
+	if cmd.Process != nil {
+		cmd.Process.Signal(syscall.SIGTERM)
+	}
+	if err := cmd.Wait(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+	}
+}
+
+func findFreePorts(num int) []int {
+	var ports []int
+	for i := 0; i < num; i++ {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			panic(err)
+		}
+		defer l.Close()
+		port := l.Addr().(*net.TCPAddr).Port
+		ports = append(ports, port)
+	}
+	return ports
+}

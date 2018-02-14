@@ -1,4 +1,5 @@
 pkgs := $(shell go list ./... | grep -v /types)
+prod_pkgs := $(shell go list ./... | grep -v /types | grep -v /e2e)
 files := $(shell find . -path ./vendor -prune -path ./types/types.pb.go -prune -o -name '*.go' -print)
 
 .PHONY: all clean format test build vet lint checkformat check docker release proto setup
@@ -44,11 +45,11 @@ endif
 
 vet :
 	@echo "== vet"
-	@go vet $(pkgs)
+	@go vet $(prod_pkgs)
 
 lint :
 	@echo "== lint"
-	@for pkg in $(pkgs); do \
+	@for pkg in $(prod_pkgs); do \
 		golint -set_exit_status $$pkg || exit 1; \
 	done;
 

@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"regexp"
 
 	"strconv"
 
@@ -16,11 +15,9 @@ import (
 )
 
 var serviceCmd = &cobra.Command{
-	Use:   "service [add|edit]",
-	Short: "Add or edit a virtual service",
+	Use:   "service [add|edit|del]",
+	Short: "Modify a virtual service",
 }
-
-var hostPortRegex = regexp.MustCompile(`^([^:]+):(\d+)$`)
 
 func validIDProtocolHostPort(_ *cobra.Command, args []string) error {
 	if len(args) != 3 {
@@ -69,6 +66,8 @@ func init() {
 		f.StringVarP(&scheduler, "scheduler", "s", "", "scheduler for new connections")
 		f.StringSliceVarP(&schedFlags, "sched-flags", "b", nil, "scheduler flags")
 	}
+
+	addServiceCmd.MarkFlagRequired("scheduler")
 }
 
 func serviceFromFlags(id string) *types.VirtualService {

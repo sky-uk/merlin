@@ -11,6 +11,7 @@ import (
 	"net"
 	"syscall"
 
+	"github.com/golang/protobuf/ptypes/wrappers"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
@@ -73,8 +74,8 @@ var _ = BeforeEach(func() {
 			Port: 999,
 		},
 		Config: &types.RealServer_Config{
-			Weight:  2,
-			Forward: "nat",
+			Weight:  &wrappers.UInt32Value{Value: 2},
+			Forward: types.ForwardMethod_MASQ,
 		},
 	}
 	hDest = &libipvs.Destination{
