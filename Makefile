@@ -54,7 +54,7 @@ proto :
 
 git_rev := $(shell git rev-parse --short HEAD)
 git_tag := $(shell git tag --points-at=$(git_rev))
-image := skycirrus/kite
+image := skycirrus/merlin
 
 docker : build
 	@echo "== build"
