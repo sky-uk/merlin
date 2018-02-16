@@ -33,10 +33,9 @@ const (
 	etcdExpandedPath   = "etcd-v2.3.8-linux-amd64/"
 	etcdDownloadSha256 = "3431112f97105733aabb95816df99e44beabed2cc96201679e3b3b830ac35282"
 	// assumes all specs run in subfolders of e2e
-	workingDir  = "../.."
-	buildDir    = workingDir + "/build"
-	etcdBinary  = buildDir + "/etcd"
-	etcdTarball = buildDir + "/etcd.tar.gz"
+	workingDir = "../.."
+	buildDir   = workingDir + "/build"
+	etcdBinary = buildDir + "/etcd"
 )
 
 var (
@@ -89,8 +88,12 @@ func init() {
 
 func downloadEtcdBinary() {
 	fmt.Fprintln(os.Stderr, "Downloading etcd binary from "+etcdDownloadURL)
+	tarball := "etcd.tar.gz"
+	fullPathTarball := buildDir + "/" + tarball
+
+	// Download tarball.
 	func() {
-		out, err := os.Create(etcdTarball)
+		out, err := os.Create(fullPathTarball)
 		if err != nil {
 			panic(err)
 		}
@@ -104,9 +107,11 @@ func downloadEtcdBinary() {
 			panic(err)
 		}
 	}()
+
+	// Checksum tarball.
 	func() {
 		fmt.Fprintln(os.Stderr, "Verifying checksum")
-		f, err := os.Open(etcdTarball)
+		f, err := os.Open(fullPathTarball)
 		if err != nil {
 			panic(err)
 		}
@@ -118,11 +123,13 @@ func downloadEtcdBinary() {
 		}
 		hs := fmt.Sprintf("%x", h.Sum(nil))
 		if hs != etcdDownloadSha256 {
-			panic("invalid sha256 sum on etcd tarball " + etcdTarball)
+			panic("invalid sha256 sum on etcd tarball " + fullPathTarball)
 		}
 	}()
+
+	// Expand tarball.
 	fmt.Fprintln(os.Stderr, "Expanding etcd binary into "+buildDir)
-	c := exec.Command("/bin/sh", "-c", "tar xzvf "+etcdTarball+" && cp "+etcdExpandedPath+"etcd* "+buildDir)
+	c := exec.Command("/bin/sh", "-c", "tar xzvf "+tarball+" && mv "+etcdExpandedPath+"etcd* ./")
 	c.Dir = buildDir
 	if out, err := c.CombinedOutput(); err != nil {
 		fmt.Fprintln(os.Stderr, string(out))
