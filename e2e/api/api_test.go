@@ -44,7 +44,7 @@ var _ = Describe("server API validation", func() {
 		cancelCall context.CancelFunc
 	)
 
-	JustBeforeEach(func() {
+	BeforeEach(func() {
 		dest := fmt.Sprintf("localhost:%s", MerlinPort())
 		fmt.Fprintf(os.Stderr, "dialing %s\n", dest)
 		c, err := grpc.Dial(dest, grpc.WithInsecure())
@@ -73,6 +73,16 @@ var _ = Describe("server API validation", func() {
 		}
 	},
 		Entry("empty service", &types.VirtualService{}),
+		Entry("missing id", &types.VirtualService{
+			Key: &types.VirtualService_Key{
+				Ip:       "127.0.0.1",
+				Port:     8080,
+				Protocol: types.Protocol_TCP,
+			},
+			Config: &types.VirtualService_Config{
+				Scheduler: "sh",
+			},
+		}),
 		Entry("missing IP", &types.VirtualService{
 			Id: "service1",
 			Key: &types.VirtualService_Key{
@@ -88,6 +98,17 @@ var _ = Describe("server API validation", func() {
 			Key: &types.VirtualService_Key{
 				Ip:       "999.999.999.999",
 				Port:     8080,
+				Protocol: types.Protocol_TCP,
+			},
+			Config: &types.VirtualService_Config{
+				Scheduler: "sh",
+			},
+		}),
+		Entry("invalid port", &types.VirtualService{
+			Id: "service1",
+			Key: &types.VirtualService_Key{
+				Ip:       "127.0.0.1",
+				Port:     99999,
 				Protocol: types.Protocol_TCP,
 			},
 			Config: &types.VirtualService_Config{
@@ -188,6 +209,17 @@ var _ = Describe("server API validation", func() {
 			Key: &types.RealServer_Key{
 				Ip:   "999.999.999.999",
 				Port: 9090,
+			},
+			Config: &types.RealServer_Config{
+				Weight:  &wrappers.UInt32Value{Value: 2},
+				Forward: types.ForwardMethod_ROUTE,
+			},
+		}),
+		Entry("invalid port", &types.RealServer{
+			ServiceID: "service1",
+			Key: &types.RealServer_Key{
+				Ip:   "127.0.0.1",
+				Port: 99999,
 			},
 			Config: &types.RealServer_Config{
 				Weight:  &wrappers.UInt32Value{Value: 2},

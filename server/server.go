@@ -7,6 +7,8 @@ import (
 
 	"net"
 
+	"math"
+
 	log "github.com/Sirupsen/logrus"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes/empty"
@@ -50,6 +52,9 @@ func validateService(service *types.VirtualService) error {
 	}
 	if service.Key.Port == 0 {
 		return status.Error(codes.InvalidArgument, "service port required")
+	}
+	if service.Key.Port > math.MaxUint16 {
+		return status.Errorf(codes.InvalidArgument, "invalid port %d", service.Key.Port)
 	}
 	if service.Key.Protocol == 0 {
 		return status.Error(codes.InvalidArgument, "service protocol required")
@@ -145,6 +150,9 @@ func validateServer(server *types.RealServer) error {
 	}
 	if server.Key.Port == 0 {
 		return status.Error(codes.InvalidArgument, "server port required")
+	}
+	if server.Key.Port > math.MaxUint16 {
+		return status.Errorf(codes.InvalidArgument, "invalid port %d", server.Key.Port)
 	}
 	if server.Config == nil {
 		return status.Error(codes.InvalidArgument, "server config required")

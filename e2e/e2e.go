@@ -10,9 +10,6 @@ import (
 
 	"os/exec"
 
-	"bytes"
-	"strings"
-
 	"fmt"
 
 	"strconv"
@@ -23,9 +20,6 @@ import (
 	"net/http"
 	"syscall"
 	"time"
-
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
 )
 
 const (
@@ -47,29 +41,6 @@ var (
 	etcd             *exec.Cmd
 	merlin           *exec.Cmd
 )
-
-func MeradmList() []string {
-	return strings.Split(strings.TrimSpace(Meradm("list")), "\n")
-}
-
-func Meradm(args ...string) string {
-	out, err := Meradm2(args...)
-	Expect(err).ToNot(HaveOccurred())
-	return out
-}
-
-func Meradm2(args ...string) (string, error) {
-	args = append(args, "-H=localhost", "-P="+merlinPort)
-	c := exec.Command("meradm", args...)
-	c.Stderr = os.Stderr
-	var output bytes.Buffer
-	c.Stdout = &output
-	fmt.Printf("-> %v\n", c.Args)
-	err := c.Run()
-	out := output.String()
-	fmt.Printf("<- %s(%v)\n", out, err)
-	return out, err
-}
 
 func init() {
 	if err := os.Mkdir(buildDir, 0755); err != nil && !os.IsExist(err) {
@@ -188,7 +159,7 @@ func StartMerlin() {
 	merlin.Stdout = os.Stdout
 	merlin.Stderr = os.Stderr
 	if err := merlin.Start(); err != nil {
-		Fail(err.Error())
+		panic(err.Error())
 	}
 	waitForServerToStart("merlin", merlinHealthPort, "/health")
 }
