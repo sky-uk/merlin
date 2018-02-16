@@ -25,18 +25,18 @@ func TestE2EAPI(t *testing.T) {
 	RunSpecs(t, "E2E API Suite")
 }
 
-var _ = BeforeSuite(func() {
-	//SetupBuild()
-	StartEtcd()
-	StartMerlin()
-})
-
-var _ = AfterSuite(func() {
-	StopEtcd()
-	StopMerlin()
-})
-
 var _ = Describe("server API validation", func() {
+	BeforeSuite(func() {
+		SetupE2E()
+		StartEtcd()
+		StartMerlin()
+	})
+
+	AfterSuite(func() {
+		StopEtcd()
+		StopMerlin()
+	})
+
 	var (
 		conn       *grpc.ClientConn
 		client     types.MerlinClient

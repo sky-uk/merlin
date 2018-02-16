@@ -42,7 +42,7 @@ var (
 	merlin           *exec.Cmd
 )
 
-func init() {
+func SetupE2E() {
 	if err := os.Mkdir(buildDir, 0755); err != nil && !os.IsExist(err) {
 		panic(err)
 	}

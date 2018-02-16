@@ -20,6 +20,10 @@ func TestE2EMeradm(t *testing.T) {
 }
 
 var _ = Describe("Meradm", func() {
+	BeforeSuite(func() {
+		SetupE2E()
+	})
+
 	BeforeEach(func() {
 		StartEtcd()
 		StartMerlin()
