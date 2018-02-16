@@ -1,0 +1,22 @@
+language: go
+
+go:
+- 1.9
+
+services:
+- docker
+
+install: make setup
+
+script: make travis
+
+deploy:
+  provider: releases
+  api_key:
+    secure: zbAeI6JhPJLUhHoRJuCvox2/bZ40s7JzrOT/Z09/N8bvjIHYH4WZTd+dvQHM8ALSByEhuhz5YhB0chMIVe1infi4lT4T1ZCaGRD8kA11y/y99aIZK9z/8NrWt+hDNzJbZ1/PamTCmLc8Kve6YNlPqzuM+XwkffmoK4QyzhRt2nYJc+mKQgAB1BvzoE4ad1+6yxfx+C1QRfB4p4jhHW3rP+hBmCWKwDtYVSqDJif/9UIuiYoGhmX0sg2AcZcck5l+hzNYA3gUYb5fHQ7xdVp+VoJPQ6/TL4a9uUU0eUbO5d26+EAdQzehkXgdOxgkVfcJCpTsJAFnixTyNLtNo1l9EVK2rdQv1yGsvYvBu7Fz+fiJm8WVbbVGZ1yhqUzJHvCZQK7IxqF+zyjdyVie3g1KYL3pIPKoVubbVsjLfWM+JktlszvXJfFj3sZVLojNYFxmKLNdwHecfXSOpY7eoSHzWyRBUwwf+LkqbaZtXfjIjV1Bjt4l04i6Ku7vE73ppvl+boqducH+jtUBi6YbME2uPEF7uhJ2Co3I8isOk7VcEzLt/NYYvL3YXbT9ctAfn9CMxs02cCY74oGME2JR1yoGaHM89nAD6DtAB/WGPBbrXqT1HFlapWfBYshPNPhlxju4K1+CZ/0sNv81BOBTrKp2i/oa7m7K2trBen+L9zbm1TM=
+  file:
+  - merlin
+  - meradm
+  on:
+    repo: sky-uk/merlin
+    tags: yes
