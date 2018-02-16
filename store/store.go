@@ -153,7 +153,7 @@ func (s *store) serverDir(serviceID string) string {
 }
 
 func (s *store) serverKey(serviceID string, key *types.RealServer_Key) string {
-	return s.serverDir(serviceID) + "/" + key.String()
+	return fmt.Sprintf("%s/%s:%d", s.serverDir(serviceID), key.Ip, key.Port)
 }
 
 func unmarshalServer(raw string) *types.RealServer {
