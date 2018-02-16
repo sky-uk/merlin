@@ -64,14 +64,7 @@ func downloadEtcdBinary() {
 
 	// Download tarball.
 	func() {
-		tmpDir, err := ioutil.TempDir(buildDir, "dl")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(tmpDir)
-		tmpTarball := tmpDir + "/" + tarball
-
-		out, err := os.Create(tmpTarball)
+		out, err := os.Create(fullPathTarball)
 		if err != nil {
 			panic(err)
 		}
@@ -84,11 +77,6 @@ func downloadEtcdBinary() {
 		defer resp.Body.Close()
 
 		if _, err = io.Copy(out, resp.Body); err != nil {
-			panic(err)
-		}
-
-		if out, err := exec.Command("mv", tmpTarball, fullPathTarball).CombinedOutput(); err != nil {
-			fmt.Fprintln(os.Stderr, string(out))
 			panic(err)
 		}
 	}()
