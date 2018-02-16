@@ -2,4 +2,5 @@ package main
 
 import "regexp"
 
-var hostPortRegex = regexp.MustCompile(`^([^:]+):(\d+)$`)
+// Simple regex to ensure we have something:port. We rely on merlin to perform proper validation.
+var ipPortRegex = regexp.MustCompile(`^([^:]+):(\d+)$`)

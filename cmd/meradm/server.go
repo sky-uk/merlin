@@ -20,35 +20,35 @@ var serverCmd = &cobra.Command{
 	Short: "Modify a real server",
 }
 
-func validServiceIDHostPort(_ *cobra.Command, args []string) error {
+func validServiceIDIPPort(_ *cobra.Command, args []string) error {
 	if len(args) != 2 {
 		return errors.New("requires two arguments")
 	}
 	b := []byte(args[1])
-	if !hostPortRegex.Match(b) {
+	if !ipPortRegex.Match(b) {
 		return errors.New("must be ip:port")
 	}
 	return nil
 }
 
 var addServerCmd = &cobra.Command{
-	Use:   "add [serviceID] [host:port]",
+	Use:   "add [serviceID] [ip:port]",
 	Short: "Add a real server",
-	Args:  validServiceIDHostPort,
+	Args:  validServiceIDIPPort,
 	RunE:  addServer,
 }
 
 var editServerCmd = &cobra.Command{
-	Use:   "edit [serviceID] [host:port]",
+	Use:   "edit [serviceID] [ip:port]",
 	Short: "Edit a real server",
-	Args:  validServiceIDHostPort,
+	Args:  validServiceIDIPPort,
 	RunE:  editServer,
 }
 
 var deleteServerCmd = &cobra.Command{
-	Use:   "del [serviceID] [host:port]",
+	Use:   "del [serviceID] [ip:port]",
 	Short: "Delete a real server",
-	Args:  validServiceIDHostPort,
+	Args:  validServiceIDIPPort,
 	RunE:  deleteServer,
 }
 
@@ -73,7 +73,7 @@ func init() {
 }
 
 func initServer(serviceID string, hostPort string) (*types.RealServer, error) {
-	matches := hostPortRegex.FindSubmatch([]byte(hostPort))
+	matches := ipPortRegex.FindSubmatch([]byte(hostPort))
 	host := string(matches[1])
 	port, err := strconv.ParseUint(string(matches[2]), 10, 16)
 	if err != nil {
