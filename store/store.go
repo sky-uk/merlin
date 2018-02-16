@@ -10,7 +10,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/coreos/etcd/client"
-	"github.com/gogo/protobuf/proto"
+	"github.com/golang/protobuf/proto"
 	"github.com/sky-uk/merlin/types"
 )
 
@@ -28,8 +28,9 @@ type Store interface {
 	GetService(ctx context.Context, serviceID string) (*types.VirtualService, error)
 	PutService(context.Context, *types.VirtualService) error
 	DeleteService(ctx context.Context, serviceID string) error
-	PutServer(*types.RealServer) error
-	DeleteServer(*types.RealServer) error
+	GetServer(ctx context.Context, serviceID string, key *types.RealServer_Key) (*types.RealServer, error)
+	PutServer(ctx context.Context, server *types.RealServer) error
+	DeleteServer(ctx context.Context, serviceID string, key *types.RealServer_Key) error
 	ListServices(context.Context) ([]*types.VirtualService, error)
 	ListServers(ctx context.Context, serviceID string) ([]*types.RealServer, error)
 }
@@ -100,16 +101,20 @@ func (s *store) serviceKey(id string) string {
 	return s.prefix + services + "/" + id
 }
 
-func unmarshalService(raw string) *types.VirtualService {
+func unmarshal(pb proto.Message, raw string) proto.Message {
 	b, err := base64.StdEncoding.DecodeString(raw)
 	if err != nil {
 		panic(fmt.Errorf("unable to decode - did you break backwards compatibility?: %v", err))
 	}
-	var service types.VirtualService
-	if err := proto.Unmarshal(b, &service); err != nil {
+	if err := proto.Unmarshal(b, pb); err != nil {
 		panic(fmt.Errorf("unable to unmarshal - did you break backwards compatibility?: %v", err))
 	}
-	return &service
+	return pb
+}
+
+func unmarshalService(raw string) *types.VirtualService {
+	var service types.VirtualService
+	return unmarshal(&service, raw).(*types.VirtualService)
 }
 
 func (s *store) GetService(ctx context.Context, serviceID string) (*types.VirtualService, error) {
@@ -127,12 +132,12 @@ func (s *store) GetService(ctx context.Context, serviceID string) (*types.Virtua
 func (s *store) PutService(ctx context.Context, service *types.VirtualService) error {
 	b, err := proto.Marshal(service)
 	if err != nil {
-		return err
+		panic(err)
 	}
 
 	enc := base64.StdEncoding.EncodeToString(b)
 	if _, err := s.kapi.Set(ctx, s.serviceKey(service.Id), enc, nil); err != nil {
-		return err
+		return fmt.Errorf("unable to store service %s: %v", service.Id, err)
 	}
 
 	return nil
@@ -143,12 +148,53 @@ func (s *store) DeleteService(ctx context.Context, serviceID string) error {
 	return err
 }
 
-func (s *store) PutServer(*types.RealServer) error {
-	panic("implement me")
+func (s *store) serverDir(serviceID string) string {
+	return s.prefix + servers + "/" + serviceID
 }
 
-func (s *store) DeleteServer(*types.RealServer) error {
-	panic("implement me")
+func (s *store) serverKey(serviceID string, key *types.RealServer_Key) string {
+	return s.serverDir(serviceID) + "/" + key.String()
+}
+
+func unmarshalServer(raw string) *types.RealServer {
+	var server types.RealServer
+	return unmarshal(&server, raw).(*types.RealServer)
+}
+
+func (s *store) GetServer(ctx context.Context, serviceID string, key *types.RealServer_Key) (*types.RealServer, error) {
+	resp, err := s.kapi.Get(ctx, s.serverKey(serviceID, key), getOpts)
+	if client.IsKeyNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve server from store: %v", err)
+	}
+	server := unmarshalServer(resp.Node.Value)
+	return server, nil
+}
+
+func (s *store) PutServer(ctx context.Context, server *types.RealServer) error {
+	if err := s.initDir(s.serverDir(server.ServiceID)); err != nil {
+		return fmt.Errorf("unable to init %s/%s: %v", servers, server.ServiceID, err)
+	}
+
+	b, err := proto.Marshal(server)
+	if err != nil {
+		panic(err)
+	}
+
+	enc := base64.StdEncoding.EncodeToString(b)
+	key := s.serverKey(server.ServiceID, server.Key)
+	if _, err := s.kapi.Set(ctx, key, enc, nil); err != nil {
+		return fmt.Errorf("unable to store server %s: %v", key, err)
+	}
+
+	return nil
+}
+
+func (s *store) DeleteServer(ctx context.Context, serviceID string, key *types.RealServer_Key) error {
+	_, err := s.kapi.Delete(ctx, s.serverKey(serviceID, key), nil)
+	return err
 }
 
 func (s *store) ListServices(ctx context.Context) ([]*types.VirtualService, error) {
@@ -166,5 +212,18 @@ func (s *store) ListServices(ctx context.Context) ([]*types.VirtualService, erro
 }
 
 func (s *store) ListServers(ctx context.Context, serviceID string) ([]*types.RealServer, error) {
-	return nil, nil
+	resp, err := s.kapi.Get(ctx, s.serverDir(serviceID), getOpts)
+	if client.IsKeyNotFound(err) {
+		return []*types.RealServer{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("unable to list servers for %s: %v", serviceID, err)
+	}
+
+	var servers []*types.RealServer
+	for _, node := range resp.Node.Nodes {
+		server := unmarshalServer(node.Value)
+		servers = append(servers, server)
+	}
+	return servers, nil
 }

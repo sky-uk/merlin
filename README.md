@@ -46,7 +46,22 @@ func main() {
 }
 ```
 
+# Design
+
+The desired state is stored in an etcd cluster.
+
+Every participating merlin node will watch etcd for changes, and then update their local ipvs to match the
+desired state.
+
+merlin was originally inspired by [gorb](https://github.com/kobolog/gorb). The main differences are:
+
+* IPVS is reconciled against actual state, improving robustness.
+* cli tool that closely mimics `ipvsadm`, with gRPC for API usage. 
+* More test coverage, including end to end tests to verify behavior.
+
 # Development
+
+You need at least golang 1.9.
 
 ```bash
 dep ensure          # setup dependencies in vendor
@@ -62,19 +77,6 @@ gRPC definitions are managed in [types](types/).
 
 Testing should be done with [gingko](http://onsi.github.io/ginkgo/)/[gomega](http://onsi.github.io/gomega/).
 [e2e](e2e/) tests cover the CRUD interaction, unit tests cover asynchronous interactions such as IPVS reconciliation.
-
-# Design
-
-The desired state is stored in an etcd cluster.
-
-Every participating merlin node will watch etcd for changes, and then update their local ipvs to match the
-desired state.
-
-merlin was originally inspired by [gorb](https://github.com/kobolog/gorb). The main differences are:
-
-* IPVS is reconciled against actual state, improving robustness.
-* cli tool that closely mimics `ipvsadm`, with gRPC for API usage. 
-* More test coverage, including end to end tests to verify behavior.
 
 # Remaining features
 

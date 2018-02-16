@@ -11,6 +11,7 @@ import (
 	"sort"
 
 	log "github.com/Sirupsen/logrus"
+	"github.com/golang/protobuf/ptypes/wrappers"
 	"github.com/mqliang/libipvs"
 	"github.com/sky-uk/merlin/types"
 )
@@ -23,12 +24,12 @@ var (
 	}
 	schedulerFlagsInverted map[uint32]string
 
-	forwardingMethods = map[string]libipvs.FwdMethod{
-		"dr":     libipvs.IP_VS_CONN_F_DROUTE,
-		"nat":    libipvs.IP_VS_CONN_F_MASQ,
-		"tunnel": libipvs.IP_VS_CONN_F_TUNNEL,
+	forwardingMethods = map[types.ForwardMethod]libipvs.FwdMethod{
+		types.ForwardMethod_ROUTE:  libipvs.IP_VS_CONN_F_DROUTE,
+		types.ForwardMethod_MASQ:   libipvs.IP_VS_CONN_F_MASQ,
+		types.ForwardMethod_TUNNEL: libipvs.IP_VS_CONN_F_TUNNEL,
 	}
-	forwardingMethodsInverted map[libipvs.FwdMethod]string
+	forwardingMethodsInverted map[libipvs.FwdMethod]types.ForwardMethod
 )
 
 func init() {
@@ -36,7 +37,7 @@ func init() {
 	for k, v := range schedulerFlags {
 		schedulerFlagsInverted[v] = k
 	}
-	forwardingMethodsInverted = make(map[libipvs.FwdMethod]string)
+	forwardingMethodsInverted = make(map[libipvs.FwdMethod]types.ForwardMethod)
 	for k, v := range forwardingMethods {
 		forwardingMethodsInverted[v] = k
 	}
@@ -201,12 +202,16 @@ func createDest(server *types.RealServer, full bool) (*libipvs.Destination, erro
 	if !full {
 		return dest, nil
 	}
-	fwdbits, ok := forwardingMethods[server.Config.Forward]
-	if !ok {
-		return nil, fmt.Errorf("invalid forwarding method %q", server.Config.Forward)
+	if server.Config.Forward != types.ForwardMethod_UNSET_FORWARD_METHOD {
+		fwdbits, ok := forwardingMethods[server.Config.Forward]
+		if !ok {
+			return nil, fmt.Errorf("invalid forwarding method %q", server.Config.Forward)
+		}
+		dest.FwdMethod = libipvs.FwdMethod(fwdbits)
 	}
-	dest.FwdMethod = libipvs.FwdMethod(fwdbits)
-	dest.Weight = server.Config.Weight
+	if server.Config.Weight != nil {
+		dest.Weight = server.Config.Weight.Value
+	}
 	return dest, nil
 }
 
@@ -269,7 +274,7 @@ func (s *shim) ListServers(key *types.VirtualService_Key) ([]*types.RealServer, 
 				Port: uint32(dest.Port),
 			},
 			Config: &types.RealServer_Config{
-				Weight:  dest.Weight,
+				Weight:  &wrappers.UInt32Value{Value: dest.Weight},
 				Forward: fwd,
 			},
 		}

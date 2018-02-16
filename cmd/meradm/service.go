@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"regexp"
 
 	"strconv"
 
@@ -16,27 +15,25 @@ import (
 )
 
 var serviceCmd = &cobra.Command{
-	Use:   "service [add|edit]",
-	Short: "Add or edit a virtual service",
+	Use:   "service [add|edit|del]",
+	Short: "Modify a virtual service",
 }
 
-var hostPortRegex = regexp.MustCompile(`^([^:]+):(\d+)$`)
-
-func validIDProtocolHostPort(_ *cobra.Command, args []string) error {
+func validIDProtocolIPPort(_ *cobra.Command, args []string) error {
 	if len(args) != 3 {
 		return errors.New("requires three arguments")
 	}
 	b := []byte(args[2])
-	if !hostPortRegex.Match(b) {
+	if !ipPortRegex.Match(b) {
 		return errors.New("must be ip:port")
 	}
 	return nil
 }
 
 var addServiceCmd = &cobra.Command{
-	Use:   "add [id] [protocol] [host:port]",
+	Use:   "add [id] [protocol] [ip:port]",
 	Short: "Add a virtual service",
-	Args:  validIDProtocolHostPort,
+	Args:  validIDProtocolIPPort,
 	RunE:  addService,
 }
 
@@ -69,6 +66,8 @@ func init() {
 		f.StringVarP(&scheduler, "scheduler", "s", "", "scheduler for new connections")
 		f.StringSliceVarP(&schedFlags, "sched-flags", "b", nil, "scheduler flags")
 	}
+
+	addServiceCmd.MarkFlagRequired("scheduler")
 }
 
 func serviceFromFlags(id string) *types.VirtualService {
@@ -89,8 +88,8 @@ func addService(_ *cobra.Command, args []string) error {
 		if !ok {
 			return errors.New("unrecognized protocol")
 		}
-		matches := hostPortRegex.FindSubmatch([]byte(args[2]))
-		host := string(matches[1])
+		matches := ipPortRegex.FindSubmatch([]byte(args[2]))
+		ip := string(matches[1])
 		port, err := strconv.ParseUint(string(matches[2]), 10, 16)
 		if err != nil {
 			return fmt.Errorf("unable to parse port: %v", err)
@@ -98,7 +97,7 @@ func addService(_ *cobra.Command, args []string) error {
 
 		svc.Key = &types.VirtualService_Key{
 			Protocol: types.Protocol(proto),
-			Ip:       host,
+			Ip:       ip,
 			Port:     uint32(port),
 		}
 

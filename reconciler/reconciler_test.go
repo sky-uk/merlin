@@ -5,6 +5,7 @@ import (
 
 	"context"
 
+	"github.com/golang/protobuf/ptypes/wrappers"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
@@ -68,15 +69,15 @@ var _ = Describe("Reconciler", func() {
 	server1 := &types.RealServer{
 		Key: serverKey1,
 		Config: &types.RealServer_Config{
-			Weight:  1.0,
-			Forward: "dr",
+			Weight:  &wrappers.UInt32Value{Value: 1},
+			Forward: types.ForwardMethod_ROUTE,
 		},
 	}
 	server1Updated := &types.RealServer{
 		Key: serverKey1,
 		Config: &types.RealServer_Config{
-			Weight:  0.0,
-			Forward: "dr",
+			Weight:  &wrappers.UInt32Value{Value: 0},
+			Forward: types.ForwardMethod_ROUTE,
 		},
 	}
 	serverKey2 := &types.RealServer_Key{
@@ -86,8 +87,8 @@ var _ = Describe("Reconciler", func() {
 	server2 := &types.RealServer{
 		Key: serverKey2,
 		Config: &types.RealServer_Config{
-			Weight:  1.0,
-			Forward: "dr",
+			Weight:  &wrappers.UInt32Value{Value: 1},
+			Forward: types.ForwardMethod_ROUTE,
 		},
 	}
 
