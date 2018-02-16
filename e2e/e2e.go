@@ -64,6 +64,7 @@ func downloadEtcdBinary() {
 
 	// Download tarball.
 	func() {
+		// download to a temporary directory to help avoid any issues around concurrent runs.
 		tmpDir, err := ioutil.TempDir(buildDir, "dl")
 		if err != nil {
 			panic(err)
