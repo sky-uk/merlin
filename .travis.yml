@@ -6,7 +6,8 @@ go:
 services:
 - docker
 
-install: make setup
+install:
+- make setup
 
 script: make travis
 

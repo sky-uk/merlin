@@ -61,19 +61,20 @@ merlin was originally inspired by [gorb](https://github.com/kobolog/gorb). The m
 
 # Development
 
-You need at least golang 1.9.
+You need golang 1.9+.
 
 ```bash
-dep ensure          # setup dependencies in vendor
+make setup          # setup required tools and dependencies
 make install check  # run tests and install
 make                # same as `install check`
 make format         # format all files
-make proto          # regenerate protobuf/gRPC bindings
+make proto          # regenerate protobuf/gRPC bindings. requires protoc installed.
 ```
 
 Dependencies are managed with [dep](https://golang.github.io/dep). `vendor` folder is never checked in.
 
-gRPC definitions are managed in [types](types/). 
+gRPC definitions are managed in [types](types/) and are generated with `make proto`.
+Ensure you run `make setup` so you have the latest golang generator.
 
 Testing should be done with [gingko](http://onsi.github.io/ginkgo/)/[gomega](http://onsi.github.io/gomega/).
 [e2e](e2e/) tests cover the CRUD interaction, unit tests cover asynchronous interactions such as IPVS reconciliation.

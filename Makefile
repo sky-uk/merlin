@@ -10,9 +10,10 @@ travis : check build docker
 
 setup :
 	@echo "== setup"
-	go get github.com/golang/lint/golint
-	go get golang.org/x/tools/cmd/goimports
-	go get github.com/golang/dep/cmd/dep
+	go get -u github.com/golang/lint/golint
+	go get -u golang.org/x/tools/cmd/goimports
+	go get -u github.com/golang/dep/cmd/dep
+	go get -u github.com/golang/protobuf/protoc-gen-go
 	dep ensure
 
 format :
@@ -59,7 +60,7 @@ test : install
 
 proto :
 	@echo "== compiling proto files"
-	docker run -v `pwd`/types:/types -w / grpc/go:1.0 protoc -I /types /types/types.proto --go_out=plugins=grpc:types
+	protoc --go_out=plugins=grpc:. types/types.proto
 
 git_rev := $(shell git rev-parse --short HEAD)
 git_tag := $(shell git tag --points-at=$(git_rev))
