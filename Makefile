@@ -1,11 +1,18 @@
 pkgs := $(shell go list ./... | grep -v /types)
 files := $(shell find . -path ./vendor -prune -path ./types/types.pb.go -prune -o -name '*.go' -print)
 
-.PHONY: all clean format test build vet lint checkformat check docker release proto
+.PHONY: all clean format test build vet lint checkformat check docker release proto setup
 
 all : install check
 check : checkformat vet lint test
-travis : checkformat check build docker
+travis : check build docker
+
+setup :
+	@echo "== setup"
+	go get github.com/golang/lint/golint
+	go get golang.org/x/tools/cmd/goimports
+	go get github.com/golang/dep/cmd/dep
+	dep ensure
 
 format :
 	@echo "== format"
@@ -18,7 +25,8 @@ clean :
 
 build :
 	@echo "== build"
-	go build -v ./cmd/...
+	go build -v github.com/sky-uk/merlin/cmd/merlin
+	go build -v github.com/sky-uk/merlin/cmd/meradm
 
 install :
 	@echo "== install"
