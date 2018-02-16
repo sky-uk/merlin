@@ -72,9 +72,9 @@ func init() {
 	addServerCmd.MarkFlagRequired("forward")
 }
 
-func initServer(serviceID string, hostPort string) (*types.RealServer, error) {
-	matches := ipPortRegex.FindSubmatch([]byte(hostPort))
-	host := string(matches[1])
+func initServer(serviceID string, ipPort string) (*types.RealServer, error) {
+	matches := ipPortRegex.FindSubmatch([]byte(ipPort))
+	ip := string(matches[1])
 	port, err := strconv.ParseUint(string(matches[2]), 10, 16)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse port: %v", err)
@@ -83,7 +83,7 @@ func initServer(serviceID string, hostPort string) (*types.RealServer, error) {
 	server := &types.RealServer{
 		ServiceID: serviceID,
 		Key: &types.RealServer_Key{
-			Ip:   host,
+			Ip:   ip,
 			Port: uint32(port),
 		},
 		Config: &types.RealServer_Config{},
