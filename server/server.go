@@ -81,7 +81,7 @@ func (s *server) CreateService(ctx context.Context, service *types.VirtualServic
 		return emptyResponse, fmt.Errorf("failed to check service exists: %v", err)
 	}
 	if prev != nil {
-		return emptyResponse, status.Errorf(codes.InvalidArgument, "service %s already exists", service.Id)
+		return emptyResponse, status.Errorf(codes.AlreadyExists, "service %s already exists", service.Id)
 	}
 
 	if err := s.store.PutService(ctx, service); err != nil {
@@ -100,7 +100,7 @@ func (s *server) UpdateService(ctx context.Context, update *types.VirtualService
 		return emptyResponse, fmt.Errorf("failed to check server exists: %v", err)
 	}
 	if prev == nil {
-		return emptyResponse, status.Errorf(codes.InvalidArgument, "service %s doesn't exist", update.Id)
+		return emptyResponse, status.Errorf(codes.NotFound, "service %s doesn't exist", update.Id)
 	}
 
 	next := proto.Clone(prev).(*types.VirtualService)
@@ -176,7 +176,7 @@ func (s *server) CreateServer(ctx context.Context, server *types.RealServer) (*e
 		return emptyResponse, fmt.Errorf("failed to check service exists: %v", err)
 	}
 	if prev != nil {
-		return emptyResponse, status.Errorf(codes.InvalidArgument, "server %v already exists", server)
+		return emptyResponse, status.Errorf(codes.AlreadyExists, "server %v already exists", server)
 	}
 
 	if err := s.store.PutServer(ctx, server); err != nil {
@@ -195,7 +195,7 @@ func (s *server) UpdateServer(ctx context.Context, update *types.RealServer) (*e
 		return emptyResponse, fmt.Errorf("failed to check server exists: %v", err)
 	}
 	if prev == nil {
-		return emptyResponse, status.Errorf(codes.InvalidArgument, "server %s/%s doesn't exist",
+		return emptyResponse, status.Errorf(codes.NotFound, "server %s/%s doesn't exist",
 			update.ServiceID, update.Key)
 	}
 
