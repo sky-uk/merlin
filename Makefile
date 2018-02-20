@@ -2,7 +2,7 @@ pkgs := $(shell go list ./... | grep -v /types)
 prod_pkgs := $(shell go list ./... | grep -v /types | grep -v /e2e)
 files := $(shell find . -path ./vendor -prune -path ./types/types.pb.go -prune -o -name '*.go' -print)
 
-.PHONY: all clean format test build vet lint checkformat check docker release proto setup
+.PHONY: all clean format test build vet lint checkformat check docker release-docker proto setup
 
 all : install check
 check : checkformat vet lint test
@@ -27,8 +27,8 @@ clean :
 
 build :
 	@echo "== build"
-	go build -v github.com/sky-uk/merlin/cmd/merlin
-	go build -v github.com/sky-uk/merlin/cmd/meradm
+	CGO_ENABLED=0 GOOS=linux go build -ldflags "-s" -a -installsuffix static github.com/sky-uk/merlin/cmd/merlin
+	CGO_ENABLED=0 GOOS=linux go build -ldflags "-s" -a -installsuffix static github.com/sky-uk/merlin/cmd/meradm
 
 install :
 	@echo "== install"
@@ -70,7 +70,7 @@ docker : build
 	@echo "== build"
 	docker build -t $(image):latest .
 
-release : docker
+release-docker : docker
 	@echo "== release"
 ifeq ($(strip $(git_tag)),)
 	@echo "no tag on $(git_rev), skipping release"
