@@ -230,6 +230,25 @@ var _ = Describe("API", func() {
 
 	Describe("CreateServer", func() {
 
+		var (
+			service = &types.VirtualService{
+				Id: "service1",
+				Key: &types.VirtualService_Key{
+					Ip:       "127.0.0.1",
+					Port:     8080,
+					Protocol: types.Protocol_TCP,
+				},
+				Config: &types.VirtualService_Config{
+					Scheduler: "sh",
+				},
+			}
+		)
+
+		BeforeEach(func() {
+			_, err := client.CreateService(ctx, service)
+			Expect(err).ToNot(HaveOccurred())
+		})
+
 		DescribeTable("field validation", func(server *types.RealServer) {
 			_, err := client.CreateServer(ctx, server)
 			status, ok := status.FromError(err)
@@ -252,14 +271,14 @@ var _ = Describe("API", func() {
 				},
 			}),
 			Entry("missing key", &types.RealServer{
-				ServiceID: "service1",
+				ServiceID: service.Id,
 				Config: &types.RealServer_Config{
 					Weight:  &wrappers.UInt32Value{Value: 2},
 					Forward: types.ForwardMethod_ROUTE,
 				},
 			}),
 			Entry("missing ip", &types.RealServer{
-				ServiceID: "service1",
+				ServiceID: service.Id,
 				Key: &types.RealServer_Key{
 					Port: 9090,
 				},
@@ -269,7 +288,7 @@ var _ = Describe("API", func() {
 				},
 			}),
 			Entry("invalid ip", &types.RealServer{
-				ServiceID: "service1",
+				ServiceID: service.Id,
 				Key: &types.RealServer_Key{
 					Ip:   "999.999.999.999",
 					Port: 9090,
@@ -280,7 +299,7 @@ var _ = Describe("API", func() {
 				},
 			}),
 			Entry("invalid port", &types.RealServer{
-				ServiceID: "service1",
+				ServiceID: service.Id,
 				Key: &types.RealServer_Key{
 					Ip:   "127.0.0.1",
 					Port: 99999,
@@ -291,7 +310,7 @@ var _ = Describe("API", func() {
 				},
 			}),
 			Entry("missing port", &types.RealServer{
-				ServiceID: "service1",
+				ServiceID: service.Id,
 				Key: &types.RealServer_Key{
 					Ip: "172.16.1.1",
 				},
@@ -301,14 +320,14 @@ var _ = Describe("API", func() {
 				},
 			}),
 			Entry("missing config", &types.RealServer{
-				ServiceID: "service1",
+				ServiceID: service.Id,
 				Key: &types.RealServer_Key{
 					Ip:   "172.16.1.1",
 					Port: 9090,
 				},
 			}),
 			Entry("missing forward method", &types.RealServer{
-				ServiceID: "service1",
+				ServiceID: service.Id,
 				Key: &types.RealServer_Key{
 					Ip:   "172.16.1.1",
 					Port: 9090,
@@ -318,7 +337,7 @@ var _ = Describe("API", func() {
 				},
 			}),
 			Entry("missing weight", &types.RealServer{
-				ServiceID: "service1",
+				ServiceID: service.Id,
 				Key: &types.RealServer_Key{
 					Ip:   "172.16.1.1",
 					Port: 9090,
@@ -331,7 +350,7 @@ var _ = Describe("API", func() {
 
 		It("should return codes.AlreadyExists if already exists", func() {
 			server1 := &types.RealServer{
-				ServiceID: "service1",
+				ServiceID: service.Id,
 				Key: &types.RealServer_Key{
 					Ip:   "172.16.1.1",
 					Port: 9090,
@@ -342,7 +361,7 @@ var _ = Describe("API", func() {
 				},
 			}
 			server2 := &types.RealServer{
-				ServiceID: server1.ServiceID,
+				ServiceID: service.Id,
 				Key:       server1.Key,
 				Config: &types.RealServer_Config{
 					Weight:  &wrappers.UInt32Value{Value: 1},
@@ -359,6 +378,30 @@ var _ = Describe("API", func() {
 				Expect(status.Code()).To(Equal(codes.AlreadyExists),
 					"expected AlreadyExists, but got %v", err)
 			}
+		})
+
+		It("should return codes.NotFound if service doesn't exist", func() {
+			server := &types.RealServer{
+				ServiceID: "service-does-not-exist",
+				Key: &types.RealServer_Key{
+					Ip:   "172.16.1.1",
+					Port: 9090,
+				},
+				Config: &types.RealServer_Config{
+					Weight:  &wrappers.UInt32Value{Value: 2},
+					Forward: types.ForwardMethod_ROUTE,
+				},
+			}
+			_, err := client.CreateServer(ctx, server)
+			fmt.Println(err)
+			status, ok := status.FromError(err)
+
+			Expect(ok).To(BeTrue(), "got grpc status error")
+			if ok {
+				Expect(status.Code()).To(Equal(codes.NotFound),
+					"expected NotFound, but got %v", err)
+			}
+
 		})
 	})
 

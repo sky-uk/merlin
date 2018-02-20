@@ -171,9 +171,17 @@ func (s *server) CreateServer(ctx context.Context, server *types.RealServer) (*e
 		return emptyResponse, err
 	}
 
+	svc, err := s.store.GetService(ctx, server.ServiceID)
+	if err != nil {
+		return emptyResponse, fmt.Errorf("failed to check service %s exists: %v", server.ServiceID, err)
+	}
+	if svc == nil {
+		return emptyResponse, status.Errorf(codes.NotFound, "service does not exist, can't create server %v", server)
+	}
+
 	prev, err := s.store.GetServer(ctx, server.ServiceID, server.Key)
 	if err != nil {
-		return emptyResponse, fmt.Errorf("failed to check service exists: %v", err)
+		return emptyResponse, fmt.Errorf("failed to check server %v exists: %v", server, err)
 	}
 	if prev != nil {
 		return emptyResponse, status.Errorf(codes.AlreadyExists, "server %v already exists", server)
