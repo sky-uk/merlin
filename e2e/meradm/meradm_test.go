@@ -82,6 +82,19 @@ var _ = Describe("Meradm", func() {
 			_, err = meradmErrored("service", "add", "service1")
 			Expect(err).To(HaveOccurred(), "should have failed validation")
 		})
+
+		It("can set a healthcheck", func() {
+			meradm("service", "add", "service1", "tcp", "10.1.1.1:888", "-s=wrr", "-b=flag-1,flag-2")
+			meradm("service", "edit", "service1",
+				"--health-endpoint=http:556/health", "--health-period=5s", "--health-timeout=1s",
+				"--health-up=2", "--health-down=1")
+			// make sure we can edit individual parts of the health check
+			meradm("service", "edit", "service1", "--health-period=10s")
+
+			out := meradmList()
+
+			Expect(out).To(ContainElement(MatchRegexp(`http:556/health.*10s.*1s.*2/1`)))
+		})
 	})
 
 	Describe("servers", func() {
@@ -151,9 +164,9 @@ func meradmErrored(args ...string) (string, error) {
 	c.Stderr = os.Stderr
 	var output bytes.Buffer
 	c.Stdout = &output
-	fmt.Printf("-> %v\n", c.Args)
+	fmt.Printf("->\n%v\n", c.Args)
 	err := c.Run()
 	out := output.String()
-	fmt.Printf("<- %s(%v)\n", out, err)
+	fmt.Printf("<-\n%s(%v)\n", out, err)
 	return out, err
 }

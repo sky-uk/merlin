@@ -109,6 +109,11 @@ func (s *server) UpdateService(ctx context.Context, update *types.VirtualService
 		next.Config.Flags = nil
 	}
 	proto.Merge(next.Config, update.Config)
+	if next.HealthCheck == nil {
+		next.HealthCheck = update.HealthCheck
+	} else {
+		proto.Merge(next.HealthCheck, update.HealthCheck)
+	}
 
 	if proto.Equal(prev, next) {
 		log.Infof("No update of %s", update.Id)

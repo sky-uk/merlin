@@ -64,8 +64,8 @@ func init() {
 	serverCmd.AddCommand(deleteServerCmd)
 
 	for _, f := range []*pflag.FlagSet{addServerCmd.Flags(), editServerCmd.Flags()} {
-		f.StringVarP(&weight, "weight", "w", "", "weight of real server, used by the IPVS scheduler")
-		f.StringVarP(&forward, "forward", "f", "", "forwarding method, one of [route|tunnel|masq]")
+		f.StringVarP(&weight, "weight", "w", "", "Weight of the real server, used by the IPVS scheduler.")
+		f.StringVarP(&forward, "forward", "f", "", "Forwarding method, one of [route|tunnel|masq].")
 	}
 
 	addServerCmd.MarkFlagRequired("weight")

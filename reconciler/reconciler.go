@@ -7,17 +7,20 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/ptypes/wrappers"
 	"github.com/sky-uk/merlin/ipvs"
+	"github.com/sky-uk/merlin/reconciler/healthchecks"
 	"github.com/sky-uk/merlin/types"
 )
 
 type reconciler struct {
-	period time.Duration
-	syncCh chan struct{}
-	store  Store
-	ipvs   ipvs.IPVS
-	flush  bool
-	stopCh chan struct{}
+	period  time.Duration
+	syncCh  chan struct{}
+	store   Store
+	ipvs    ipvs.IPVS
+	checker healthchecks.Checker
+	flush   bool
+	stopCh  chan struct{}
 }
 
 // Store expected store interface for reconciler.
@@ -36,11 +39,12 @@ type Reconciler interface {
 // New returns a reconciler that populates the ipvs state periodically and on demand.
 func New(period time.Duration, store Store, ipvs ipvs.IPVS) Reconciler {
 	return &reconciler{
-		period: period,
-		syncCh: make(chan struct{}),
-		store:  store,
-		ipvs:   ipvs,
-		stopCh: make(chan struct{}),
+		period:  period,
+		syncCh:  make(chan struct{}),
+		store:   store,
+		ipvs:    ipvs,
+		checker: healthchecks.New(),
+		stopCh:  make(chan struct{}),
 	}
 }
 
@@ -66,6 +70,7 @@ func (r *reconciler) Start() error {
 
 func (r *reconciler) Stop() {
 	close(r.stopCh)
+	r.checker.Stop()
 }
 
 func (r *reconciler) Sync() {
@@ -99,6 +104,7 @@ func (r *reconciler) reconcile() {
 				break
 			}
 		}
+
 		if match == nil {
 			log.Infof("Adding virtual service: %v", desiredService)
 			if err := r.ipvs.AddService(desiredService); err != nil {
@@ -111,6 +117,10 @@ func (r *reconciler) reconcile() {
 			}
 		}
 
+		if match == nil || !proto.Equal(desiredService.HealthCheck, match.HealthCheck) {
+			r.checker.SetHealthCheck(desiredService.Id, desiredService.HealthCheck)
+		}
+
 		desiredServers, err := r.store.ListServers(ctx, desiredService.Id)
 		if err != nil {
 			log.Errorf("unable to list servers in store for %s: %v", desiredService.Key, err)
@@ -120,6 +130,31 @@ func (r *reconciler) reconcile() {
 		if err != nil {
 			log.Errorf("unable to list servers in ipvs for %v: %v", desiredService.Key, err)
 			continue
+		}
+
+		// add to health check for any new servers
+		// do this before checking GetDownServers, to ensure we set weights of new servers correctly
+		for _, desiredServer := range desiredServers {
+			var found bool
+			for _, actualServer := range actualServers {
+				if proto.Equal(desiredServer.Key, actualServer.Key) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				r.checker.AddServer(desiredService.Id, desiredServer.Key.Ip)
+			}
+		}
+
+		// set weight to 0 for any down servers
+		downIPs := r.checker.GetDownServers(desiredService.Id)
+		for _, ip := range downIPs {
+			for _, desiredServer := range desiredServers {
+				if desiredServer.Key.Ip == ip {
+					desiredServer.Config.Weight = &wrappers.UInt32Value{Value: 0}
+				}
+			}
 		}
 
 		for _, desiredServer := range desiredServers {
@@ -153,6 +188,9 @@ func (r *reconciler) reconcile() {
 			}
 			if !found {
 				log.Infof("Deleting real server: %v", actualServer)
+				// remove health check
+				r.checker.RemServer(desiredService.Id, actualServer.Key.Ip)
+				// remove from ipvs
 				if err := r.ipvs.DeleteServer(desiredService.Key, actualServer); err != nil {
 					log.Errorf("Unable to delete server: %v", err)
 				}
@@ -171,6 +209,9 @@ func (r *reconciler) reconcile() {
 		}
 		if !found {
 			log.Infof("Deleting virtual service: %v", actual)
+			// remove health checks
+			r.checker.SetHealthCheck(actual.Id, nil)
+			// remove from ipvs
 			if err := r.ipvs.DeleteService(actual.Key); err != nil {
 				log.Errorf("Unable to delete service: %v", err)
 			}
