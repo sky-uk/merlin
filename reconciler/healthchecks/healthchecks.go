@@ -47,6 +47,11 @@ const (
 	serverDown healthState = false
 )
 
+// checkStatus keeps track of the current status of a health check for a specific real server.
+// state field represents the current state, either up or down.
+// count field is a state variable, whose meaning changes depending on state:
+// * up   - count is the number of failed health checks
+// * down - count is the number of successful health checks
 type checkStatus struct {
 	state healthState
 	count uint32
@@ -64,11 +69,9 @@ func (c *checker) GetDownServers(id string) []string {
 
 	info, ok := c.infos[id]
 	if !ok || info.healthCheck == nil {
-		log.Info("return nil")
 		return nil
 	}
 
-	log.Infof("checking down servers in %v", info)
 	var downServers []string
 	for server, status := range info.serverStatuses {
 		status.Lock()
@@ -134,9 +137,7 @@ func (c *checker) updateHealthCheck(info *checkInfo, check *types.VirtualService
 
 	// kick off new health checks with the updated check
 	for server, status := range info.serverStatuses {
-		stopCh := make(chan struct{})
-		info.serverStopChs[server] = stopCh
-		go status.healthCheck(stopCh, server, check)
+		info.startBackgroundHealthCheck(server, status)
 	}
 }
 
@@ -171,6 +172,10 @@ func (c *checker) AddServer(id, server string) {
 	}
 
 	// kick off health check
+	info.startBackgroundHealthCheck(server, status)
+}
+
+func (info *checkInfo) startBackgroundHealthCheck(server string, status *checkStatus) {
 	stopCh := make(chan struct{})
 	info.serverStopChs[server] = stopCh
 	go status.healthCheck(stopCh, server, info.healthCheck)
@@ -206,7 +211,7 @@ func (c *checker) Stop() {
 	}
 }
 
-// healthCheck the servers and update their status
+// healthCheck a real server and update its status
 func (s *checkStatus) healthCheck(stopCh <-chan struct{}, server string, healthCheck *types.VirtualService_HealthCheck) {
 	per, _ := ptypes.Duration(healthCheck.Period)
 	t := time.NewTicker(per)

@@ -9,6 +9,8 @@ import (
 
 	"math"
 
+	"net/url"
+
 	log "github.com/Sirupsen/logrus"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes/empty"
@@ -18,7 +20,6 @@ import (
 	"github.com/sky-uk/merlin/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"net/url"
 )
 
 type server struct {

@@ -132,7 +132,7 @@ func (r *reconciler) reconcile() {
 			continue
 		}
 
-		// add to health check for any new servers
+		// health check new servers
 		// do this before checking GetDownServers, to ensure we set weights of new servers correctly
 		for _, desiredServer := range desiredServers {
 			var found bool

@@ -206,12 +206,13 @@ var _ = Describe("HealthChecks", func() {
 
 		It("should list server in down IPs", func() {
 			checker.SetHealthCheck(id, check)
+			checker.AddServer(id, "localhost")
 			checker.AddServer(id, "127.0.0.1")
 
 			time.Sleep(waitForDown)
 			downServers := checker.GetDownServers(id)
 
-			Expect(downServers).To(ConsistOf("127.0.0.1"))
+			Expect(downServers).To(ConsistOf("localhost", "127.0.0.1"))
 		})
 
 		It("should not list server as down if removed", func() {
