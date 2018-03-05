@@ -60,18 +60,17 @@ func SetupE2E() {
 func downloadEtcdBinary() {
 	fmt.Fprintln(os.Stderr, "Downloading etcd binary from "+etcdDownloadURL)
 	tarball := "etcd.tar.gz"
-	fullPathTarball := buildDir + "/" + tarball
+
+	// download to a temporary directory to help avoid any issues around concurrent runs.
+	tmpDir, err := ioutil.TempDir(buildDir, "dl")
+	if err != nil {
+		panic(err)
+	}
+	defer os.RemoveAll(tmpDir)
+	tmpTarball := tmpDir + "/" + tarball
 
 	// Download tarball.
 	func() {
-		// download to a temporary directory to help avoid any issues around concurrent runs.
-		tmpDir, err := ioutil.TempDir(buildDir, "dl")
-		if err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(tmpDir)
-		tmpTarball := tmpDir + "/" + tarball
-
 		out, err := os.Create(tmpTarball)
 		if err != nil {
 			panic(err)
@@ -87,17 +86,12 @@ func downloadEtcdBinary() {
 		if _, err = io.Copy(out, resp.Body); err != nil {
 			panic(err)
 		}
-
-		if out, err := exec.Command("mv", tmpTarball, fullPathTarball).CombinedOutput(); err != nil {
-			fmt.Fprintln(os.Stderr, string(out))
-			panic(err)
-		}
 	}()
 
 	// Checksum tarball.
 	func() {
 		fmt.Fprintln(os.Stderr, "Verifying checksum")
-		f, err := os.Open(fullPathTarball)
+		f, err := os.Open(tmpTarball)
 		if err != nil {
 			panic(err)
 		}
@@ -109,14 +103,14 @@ func downloadEtcdBinary() {
 		}
 		hs := fmt.Sprintf("%x", h.Sum(nil))
 		if hs != etcdDownloadSha256 {
-			panic("invalid sha256 sum on etcd tarball " + fullPathTarball)
+			panic("invalid sha256 sum on etcd tarball " + tmpTarball)
 		}
 	}()
 
 	// Expand tarball.
 	fmt.Fprintln(os.Stderr, "Expanding etcd binary into "+buildDir)
-	c := exec.Command("/bin/sh", "-c", "tar xzvf "+tarball+" && mv "+etcdExpandedPath+"etcd* ./")
-	c.Dir = buildDir
+	c := exec.Command("/bin/sh", "-c", "tar xzvf "+tarball+" && mv "+etcdExpandedPath+"etcd* "+buildDir+"/")
+	c.Dir = tmpDir
 	if out, err := c.CombinedOutput(); err != nil {
 		fmt.Fprintln(os.Stderr, string(out))
 		panic(err)

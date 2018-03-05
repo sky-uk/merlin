@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/url"
 
+	"errors"
+
 	"github.com/golang/protobuf/ptypes"
 	log "github.com/sirupsen/logrus"
 	"github.com/sky-uk/merlin/types"
@@ -68,7 +70,7 @@ func (c *checker) GetDownServers(id string) []string {
 	defer c.Unlock()
 
 	info, ok := c.infos[id]
-	if !ok || info.healthCheck == nil {
+	if !ok || info.healthCheck.Endpoint == "" {
 		return nil
 	}
 
@@ -85,6 +87,9 @@ func (c *checker) GetDownServers(id string) []string {
 
 func validateCheck(check *types.VirtualService_HealthCheck) error {
 	if check == nil {
+		return errors.New("check should be non-nil")
+	}
+	if check.Endpoint == "" {
 		return nil
 	}
 	u, err := url.Parse(check.Endpoint)
@@ -131,7 +136,7 @@ func (c *checker) updateHealthCheck(info *checkInfo, check *types.VirtualService
 		delete(info.serverStopChs, server)
 	}
 
-	if check == nil {
+	if check.Endpoint == "" {
 		return
 	}
 
@@ -149,7 +154,7 @@ func (c *checker) AddServer(id, server string) {
 	if !ok {
 		// initialise health check if not set yet
 		c.Unlock()
-		if err := c.SetHealthCheck(id, nil); err != nil {
+		if err := c.SetHealthCheck(id, &types.VirtualService_HealthCheck{}); err != nil {
 			panic(err)
 		}
 		c.Lock()
@@ -166,7 +171,7 @@ func (c *checker) AddServer(id, server string) {
 	}
 	info.serverStatuses[server] = status
 
-	if info.healthCheck == nil {
+	if info.healthCheck.Endpoint == "" {
 		//  nothing more to do, return
 		return
 	}
@@ -207,7 +212,7 @@ func (c *checker) Stop() {
 	defer c.Unlock()
 
 	for _, info := range c.infos {
-		c.updateHealthCheck(info, nil)
+		c.updateHealthCheck(info, &types.VirtualService_HealthCheck{})
 	}
 }
 

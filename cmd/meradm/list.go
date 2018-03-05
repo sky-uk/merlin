@@ -49,7 +49,7 @@ func list(_ *cobra.Command, _ []string) error {
 				svc.Config.Scheduler,
 				strings.Join(svc.Config.Flags, ","))
 
-			if svc.HealthCheck != nil {
+			if svc.HealthCheck.Endpoint != "" {
 				period, _ := ptypes.Duration(svc.HealthCheck.Period)
 				timeout, _ := ptypes.Duration(svc.HealthCheck.Timeout)
 				fmt.Fprintf(w, "\t    \t%s\t%v\t%v\t%d/%d\t\n",

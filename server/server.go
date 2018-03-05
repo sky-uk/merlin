@@ -70,7 +70,7 @@ func validateService(service *types.VirtualService) error {
 	if service.Config.Scheduler == "" {
 		return status.Error(codes.InvalidArgument, "service scheduler required")
 	}
-	if service.HealthCheck != nil {
+	if service.HealthCheck != nil && service.HealthCheck.Endpoint != "" {
 		u, err := url.Parse(service.HealthCheck.Endpoint)
 		if err != nil {
 			return status.Errorf(codes.InvalidArgument, "health check endpoint %q must be a valid url: %v",
@@ -86,11 +86,28 @@ func validateService(service *types.VirtualService) error {
 		if u.Port() == "" {
 			return status.Errorf(codes.InvalidArgument, "health check endpoint is missing port")
 		}
+		if service.HealthCheck.Period.Seconds == 0 && service.HealthCheck.Period.Nanos == 0 {
+			return status.Errorf(codes.InvalidArgument, "health check period is required")
+		}
+		if service.HealthCheck.Timeout.Seconds == 0 && service.HealthCheck.Timeout.Nanos == 0 {
+			return status.Errorf(codes.InvalidArgument, "health check timeout is required")
+		}
+		if service.HealthCheck.DownThreshold == 0 {
+			return status.Errorf(codes.InvalidArgument, "health check down threshold is required and must be > 0")
+		}
+		if service.HealthCheck.UpThreshold == 0 {
+			return status.Errorf(codes.InvalidArgument, "health check up threshold is required and must be > 0")
+		}
 	}
 	return nil
 }
 
 func (s *server) CreateService(ctx context.Context, service *types.VirtualService) (*empty.Empty, error) {
+	// ensure health check field always exists
+	if service.HealthCheck == nil {
+		service.HealthCheck = &types.VirtualService_HealthCheck{}
+	}
+
 	if err := validateService(service); err != nil {
 		return emptyResponse, err
 	}
@@ -128,11 +145,7 @@ func (s *server) UpdateService(ctx context.Context, update *types.VirtualService
 		next.Config.Flags = nil
 	}
 	proto.Merge(next.Config, update.Config)
-	if next.HealthCheck == nil {
-		next.HealthCheck = update.HealthCheck
-	} else {
-		proto.Merge(next.HealthCheck, update.HealthCheck)
-	}
+	proto.Merge(next.HealthCheck, update.HealthCheck)
 
 	if proto.Equal(prev, next) {
 		log.Infof("No update of %s", update.Id)

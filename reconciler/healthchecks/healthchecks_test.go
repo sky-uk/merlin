@@ -246,7 +246,7 @@ var _ = Describe("HealthChecks", func() {
 			Expect(checker.GetDownServers(id)).To(ConsistOf("127.0.0.1"))
 
 			By("removing the health check", func() {
-				checker.SetHealthCheck(id, nil)
+				checker.SetHealthCheck(id, &types.VirtualService_HealthCheck{})
 				Expect(checker.GetDownServers(id)).To(BeEmpty())
 			})
 
