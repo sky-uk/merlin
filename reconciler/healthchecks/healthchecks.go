@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"net/url"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/golang/protobuf/ptypes"
+	log "github.com/sirupsen/logrus"
 	"github.com/sky-uk/merlin/types"
 )
 

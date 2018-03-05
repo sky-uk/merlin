@@ -19,9 +19,9 @@ import (
 
 	"context"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/mqliang/libipvs"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	log "github.com/sirupsen/logrus"
 	"github.com/sky-uk/merlin/ipvs"
 	"github.com/sky-uk/merlin/reconciler"
 	"github.com/sky-uk/merlin/server"

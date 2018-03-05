@@ -11,10 +11,10 @@ import (
 
 	"net/url"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/golang/protobuf/ptypes/wrappers"
+	log "github.com/sirupsen/logrus"
 	"github.com/sky-uk/merlin/reconciler"
 	"github.com/sky-uk/merlin/store"
 	"github.com/sky-uk/merlin/types"

@@ -2,12 +2,6 @@
 
 
 [[projects]]
-  name = "github.com/Sirupsen/logrus"
-  packages = ["."]
-  revision = "d682213848ed68c0a260ca37d6dd5ace8423f5ba"
-  version = "v1.0.4"
-
-[[projects]]
   branch = "master"
   name = "github.com/beorn7/perks"
   packages = ["quantile"]
@@ -36,6 +30,12 @@
   packages = ["spew"]
   revision = "346938d642f2ec3594ed81d874461961cd0faa76"
   version = "v1.1.0"
+
+[[projects]]
+  name = "github.com/gogo/protobuf"
+  packages = ["proto"]
+  revision = "1adfc126b41513cc696b209667c8656ea7aac67c"
+  version = "v1.0.0"
 
 [[projects]]
   name = "github.com/golang/protobuf"
@@ -74,6 +74,12 @@
   name = "github.com/mqliang/libipvs"
   packages = ["."]
   revision = "38f5f7e6361787f0007b825811aa732d83888197"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/onrik/logrus"
+  packages = ["filename"]
+  revision = "6a64e23a4923a8d0d4db2806dcf3e55af1e48f61"
 
 [[projects]]
   name = "github.com/onsi/ginkgo"
@@ -167,6 +173,12 @@
     "xfs"
   ]
   revision = "cb4147076ac75738c9a7d279075a253c0cc5acbd"
+
+[[projects]]
+  name = "github.com/sirupsen/logrus"
+  packages = ["."]
+  revision = "d682213848ed68c0a260ca37d6dd5ace8423f5ba"
+  version = "v1.0.4"
 
 [[projects]]
   name = "github.com/spf13/cobra"
@@ -310,6 +322,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "68763be88c15188696dd477ebcedbd649188c55b787f9762ef20805661c2fe4e"
+  inputs-digest = "d5baa299afca2448e089e3c9124c3a9203f9f4683a12a8a24260311a8298eb94"
   solver-name = "gps-cdcl"
   solver-version = 1

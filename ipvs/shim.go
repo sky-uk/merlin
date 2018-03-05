@@ -10,9 +10,9 @@ import (
 
 	"sort"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/golang/protobuf/ptypes/wrappers"
 	"github.com/mqliang/libipvs"
+	log "github.com/sirupsen/logrus"
 	"github.com/sky-uk/merlin/types"
 )
 
