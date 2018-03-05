@@ -18,6 +18,7 @@ import (
 	"github.com/sky-uk/merlin/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"net/url"
 )
 
 type server struct {
@@ -67,6 +68,23 @@ func validateService(service *types.VirtualService) error {
 	}
 	if service.Config.Scheduler == "" {
 		return status.Error(codes.InvalidArgument, "service scheduler required")
+	}
+	if service.HealthCheck != nil {
+		u, err := url.Parse(service.HealthCheck.Endpoint)
+		if err != nil {
+			return status.Errorf(codes.InvalidArgument, "health check endpoint %q must be a valid url: %v",
+				service.HealthCheck.Endpoint, err)
+		}
+		switch u.Scheme {
+		case "http":
+			// valid
+		default:
+			return status.Errorf(codes.InvalidArgument, "health check endpoint scheme %q not recognized",
+				u.Scheme)
+		}
+		if u.Port() == "" {
+			return status.Errorf(codes.InvalidArgument, "health check endpoint is missing port")
+		}
 	}
 	return nil
 }
@@ -118,6 +136,10 @@ func (s *server) UpdateService(ctx context.Context, update *types.VirtualService
 	if proto.Equal(prev, next) {
 		log.Infof("No update of %s", update.Id)
 		return emptyResponse, nil
+	}
+
+	if err := validateService(next); err != nil {
+		return emptyResponse, err
 	}
 
 	if err := s.store.PutService(ctx, next); err != nil {
@@ -218,6 +240,10 @@ func (s *server) UpdateServer(ctx context.Context, update *types.RealServer) (*e
 	if proto.Equal(prev, next) {
 		log.Infof("No update of %s/%s", update.ServiceID, update.Key)
 		return emptyResponse, nil
+	}
+
+	if err := validateServer(next); err != nil {
+		return emptyResponse, err
 	}
 
 	if err := s.store.PutServer(ctx, next); err != nil {
