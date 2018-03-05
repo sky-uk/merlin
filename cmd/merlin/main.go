@@ -20,6 +20,7 @@ import (
 	"context"
 
 	"github.com/mqliang/libipvs"
+	"github.com/onrik/logrus/filename"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 	"github.com/sky-uk/merlin/ipvs"
@@ -59,9 +60,12 @@ func main() {
 		log.SetLevel(log.DebugLevel)
 		log.Debug("debug logs on")
 	}
+	filenameHook := filename.NewHook()
+	filenameHook.Field = "source"
+	log.AddHook(filenameHook)
 
 	srv := &srv{}
-	go srv.Start()
+	srv.Start()
 	addSignalHandler(srv)
 	addHealthPort(srv)
 	select {}
@@ -107,7 +111,11 @@ func (s *srv) Start() {
 		grpc.UnaryInterceptor(logRequests),
 	)
 	types.RegisterMerlinServer(s.grpcServer, server)
-	log.Fatal(s.grpcServer.Serve(lis))
+	go func() {
+		if err := s.grpcServer.Serve(lis); err != nil {
+			log.Error(err)
+		}
+	}()
 }
 
 func (s *srv) Stop() error {
@@ -150,7 +158,9 @@ func addHealthPort(s *srv) {
 	http.HandleFunc("/alive", okHandler)
 
 	go func() {
-		log.Fatal(http.ListenAndServe(":"+strconv.Itoa(healthPort), nil))
+		if err := http.ListenAndServe(":"+strconv.Itoa(healthPort), nil); err != nil {
+			log.Error(err)
+		}
 	}()
 }
 
