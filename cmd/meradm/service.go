@@ -75,11 +75,11 @@ func init() {
 		f.StringSliceVarP(&schedFlags, "sched-flags", "b", nil, "scheduler flags")
 		f.StringVar(&healthEndpoint, "health-endpoint", "", "Endpoint for health checks. "+
 			"If unset, no health check occurs and the server is assumed to always be up.")
-		f.DurationVar(&healthPeriod, "health-period", 0, "Time period between health checks.")
-		f.DurationVar(&healthTimeout, "health-timeout", 0, "Timeout for health checks.")
-		f.Uint16Var(&healthUpThreshold, "health-up", 0,
+		f.DurationVar(&healthPeriod, "health-period", 10*time.Second, "Time period between health checks.")
+		f.DurationVar(&healthTimeout, "health-timeout", time.Second, "Timeout for health checks.")
+		f.Uint16Var(&healthUpThreshold, "health-up", 3,
 			"Threshold of successful health checks before marking a server as up.")
-		f.Uint16Var(&healthDownThreshold, "health-down", 0,
+		f.Uint16Var(&healthDownThreshold, "health-down", 2,
 			"Threshold of failed health checks before marking a server as down.")
 	}
 

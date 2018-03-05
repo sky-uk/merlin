@@ -32,7 +32,8 @@ build-release :
 
 install :
 	@echo "== install"
-	@go install -race -v ./cmd/...
+	@go install -race -v ./cmd/merlin
+	@go install -v ./cmd/meradm
 
 unformatted = $(shell goimports -l $(files))
 
