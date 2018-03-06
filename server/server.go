@@ -15,7 +15,6 @@ import (
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/golang/protobuf/ptypes/wrappers"
 	log "github.com/sirupsen/logrus"
-	"github.com/sky-uk/merlin/reconciler"
 	"github.com/sky-uk/merlin/store"
 	"github.com/sky-uk/merlin/types"
 	"google.golang.org/grpc/codes"
@@ -23,15 +22,13 @@ import (
 )
 
 type server struct {
-	store      store.Store
-	reconciler reconciler.Reconciler
+	store store.Store
 }
 
 // New merlin server implementation.
-func New(store store.Store, reconciler reconciler.Reconciler) types.MerlinServer {
+func New(store store.Store) types.MerlinServer {
 	return &server{
-		store:      store,
-		reconciler: reconciler,
+		store: store,
 	}
 }
 
@@ -124,9 +121,7 @@ func (s *server) CreateService(ctx context.Context, service *types.VirtualServic
 		return emptyResponse, fmt.Errorf("failed to create service: %v", err)
 	}
 
-	s.reconciler.Sync()
-
-	log.Infof("Created %v", service)
+	log.Infof("Created virtual service: %v", service)
 	return emptyResponse, nil
 }
 
@@ -164,8 +159,6 @@ func (s *server) UpdateService(ctx context.Context, update *types.VirtualService
 		return emptyResponse, fmt.Errorf("failed to update service: %v", err)
 	}
 
-	s.reconciler.Sync()
-
 	log.Infof("Updated %v", next)
 	return emptyResponse, nil
 }
@@ -175,7 +168,6 @@ func (s *server) DeleteService(ctx context.Context, wrappedID *wrappers.StringVa
 	if err := s.store.DeleteService(ctx, id); err != nil {
 		return emptyResponse, fmt.Errorf("failed to delete service %s: %v", id, err)
 	}
-	s.reconciler.Sync()
 	log.Infof("Deleted %s", id)
 	return emptyResponse, nil
 }
@@ -236,9 +228,7 @@ func (s *server) CreateServer(ctx context.Context, server *types.RealServer) (*e
 		return emptyResponse, fmt.Errorf("failed to create server: %v", err)
 	}
 
-	s.reconciler.Sync()
-
-	log.Infof("Created %v", server)
+	log.Infof("Created real server: %v", server)
 	return emptyResponse, nil
 }
 
@@ -268,8 +258,6 @@ func (s *server) UpdateServer(ctx context.Context, update *types.RealServer) (*e
 		return emptyResponse, fmt.Errorf("failed to update server: %v", err)
 	}
 
-	s.reconciler.Sync()
-
 	log.Infof("Updated %v", next)
 	return emptyResponse, nil
 }
@@ -278,7 +266,6 @@ func (s *server) DeleteServer(ctx context.Context, server *types.RealServer) (*e
 	if err := s.store.DeleteServer(ctx, server.ServiceID, server.Key); err != nil {
 		return emptyResponse, fmt.Errorf("failed to delete server %s: %v", server, err)
 	}
-	s.reconciler.Sync()
 	log.Infof("Deleted %s/%s", server.ServiceID, server.Key)
 	return emptyResponse, nil
 }

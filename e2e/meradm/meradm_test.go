@@ -9,6 +9,9 @@ import (
 	"os/exec"
 	"strings"
 
+	"net/http"
+	"time"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	. "github.com/sky-uk/merlin/e2e"
@@ -30,8 +33,8 @@ var _ = Describe("Meradm", func() {
 	})
 
 	AfterEach(func() {
-		StopEtcd()
 		StopMerlin()
+		StopEtcd()
 	})
 
 	Describe("services", func() {
@@ -42,6 +45,14 @@ var _ = Describe("Meradm", func() {
 				out := meradmList()
 
 				Expect(out).To(ContainElement(MatchRegexp(`.*service1.*TCP.*10.1.1.1:888.*wrr.*flag-1,flag-2.*`)))
+			})
+
+			It("syncs the reconciler", func() {
+				// flush stderr so far
+				MerlinStderr()
+				meradm("service", "add", "service1", "tcp", "10.1.1.1:888", "-s=wrr", "-b=flag-1,flag-2")
+				time.Sleep(50 * time.Millisecond)
+				Expect(MerlinStderr()).To(ContainElement(ContainSubstring("stub-reconciler: Sync()")))
 			})
 
 			It("succeeds without scheduler flags", func() {
@@ -112,12 +123,22 @@ var _ = Describe("Meradm", func() {
 			meradm("service", "add", "service1", "tcp", "10.1.1.1:888", "-s=wrr", "-b=flag-1,flag-2")
 		})
 
-		It("can add a new server", func() {
-			meradm("server", "add", "service1", "172.16.1.1:555", "-w=2", "-f=masq")
+		Context("add a server", func() {
+			It("succeeds", func() {
+				meradm("server", "add", "service1", "172.16.1.1:555", "-w=2", "-f=masq")
 
-			out := meradmList()
+				out := meradmList()
 
-			Expect(out).To(ContainElement(MatchRegexp(`.*172.16.1.1:555.*MASQ.*2.*`)))
+				Expect(out).To(ContainElement(MatchRegexp(`.*172.16.1.1:555.*MASQ.*2.*`)))
+			})
+
+			It("syncs the reconciler", func() {
+				// flush stderr so far
+				MerlinStderr()
+				meradm("server", "add", "service1", "172.16.1.1:555", "-w=2", "-f=masq")
+				time.Sleep(50 * time.Millisecond)
+				Expect(MerlinStderr()).To(ContainElement(ContainSubstring("stub-reconciler: Sync()")))
+			})
 		})
 
 		It("can edit a server", func() {
@@ -154,6 +175,38 @@ var _ = Describe("Meradm", func() {
 		It("requires flags are set when adding a service", func() {
 			_, err := meradmErrored("server", "add", "service1", "172.16.1.1:555")
 			Expect(err).To(HaveOccurred())
+		})
+	})
+
+	Describe("External Updates", func() {
+		It("should run reconciler if etcd is updated elsewhere", func() {
+			meradm("service", "add", "service1", "tcp", "10.1.1.1:888", "-s=wrr", "-b=flag-1,flag-2")
+			meradm("server", "add", "service1", "172.16.1.1:555", "-w=1", "-f=masq")
+			time.Sleep(100 * time.Millisecond)
+			MerlinStderr()
+
+			etcdDel := func(path string) {
+				serverURL := fmt.Sprintf("http://localhost:%s/v2/keys/merlin/%s", EtcdPort(), path)
+				req, _ := http.NewRequest(http.MethodDelete, serverURL, nil)
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					panic(err)
+				}
+				defer resp.Body.Close()
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			}
+
+			// delete server directly in etcd
+			etcdDel("servers/service1/172.16.1.1:555")
+			time.Sleep(250 * time.Millisecond)
+			stderr := MerlinStderr()
+			Expect(stderr).To(ContainElement(ContainSubstring("stub-reconciler: Sync()")))
+
+			// delete service directly in etcd
+			etcdDel("services/service1")
+			time.Sleep(250 * time.Millisecond)
+			stderr = MerlinStderr()
+			Expect(stderr).To(ContainElement(ContainSubstring("stub-reconciler: Sync()")))
 		})
 	})
 })
