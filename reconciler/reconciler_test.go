@@ -296,11 +296,10 @@ var _ = Describe("Reconciler", func() {
 	})
 
 	Describe("Start/Stop", func() {
-		It("should add health checks for existing real servers on start and stop checker on stop", func() {
+		It("should add health checks for existing real servers on start", func() {
 			storeMock := &storeMock{}
-			ipvsMock := &ipvsMock{}
 			checkerMock := &checkerMock{}
-			r := New(math.MaxInt64, storeMock, ipvsMock).(*reconciler)
+			r := New(math.MaxInt64, storeMock, nil).(*reconciler)
 			r.checker = checkerMock
 
 			storeServices := []*types.VirtualService{svc1}
@@ -311,7 +310,7 @@ var _ = Describe("Reconciler", func() {
 			checkerMock.On("SetHealthCheck", svc1.Id, svc1.HealthCheck).Return(nil)
 			checkerMock.On("AddServer", svc1.Id, server1.Key.Ip)
 			checkerMock.On("AddServer", svc1.Id, server2.Key.Ip)
-			checkerMock.On("Stop").Return()
+			checkerMock.On("Stop").Return(nil)
 
 			err := r.Start()
 			Expect(err).ToNot(HaveOccurred())

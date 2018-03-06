@@ -76,7 +76,6 @@ func (r *reconciler) Start() error {
 		r.Stop()
 		return err
 	}
-	r.Sync()
 	return nil
 }
 

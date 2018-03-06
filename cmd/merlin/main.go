@@ -104,7 +104,10 @@ func (s *srv) Start() {
 		s.reconciler = reconciler.NewStub()
 	}
 
-	s.reconciler.Start()
+	if err := s.reconciler.Start(); err != nil {
+		log.Fatalf("Unable to start reconciler: %v", err)
+	}
+	s.reconciler.Sync()
 	server := server.New(etcdStore, s.reconciler)
 
 	s.grpcServer = grpc.NewServer(
