@@ -11,6 +11,7 @@ import (
 
 	"errors"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	log "github.com/sirupsen/logrus"
 	"github.com/sky-uk/merlin/types"
@@ -114,6 +115,10 @@ func (c *checker) SetHealthCheck(id string, check *types.VirtualService_HealthCh
 	defer c.Unlock()
 
 	if info, ok := c.infos[id]; ok {
+		// don't update if it's the same
+		if proto.Equal(info.healthCheck, check) {
+			return nil
+		}
 		c.updateHealthCheck(info, check)
 		return nil
 	}

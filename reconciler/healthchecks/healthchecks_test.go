@@ -44,17 +44,19 @@ func getServerStatus() int {
 
 var _ = Describe("HealthChecks", func() {
 	var (
-		id                     = "myservice"
-		checkPath              = "/health"
-		check                  *types.VirtualService_HealthCheck
-		waitForUp, waitForDown time.Duration
-		checker                Checker
-		ts                     *httptest.Server
+		id                                      = "myservice"
+		checkPath                               = "/health"
+		check                                   *types.VirtualService_HealthCheck
+		period, timeout, waitForUp, waitForDown time.Duration
+		checker                                 Checker
+		ts                                      *httptest.Server
 	)
 
 	BeforeEach(func() {
 		setServerStatus(http.StatusOK)
 		checker = New()
+		period = 50 * time.Millisecond
+		timeout = 20 * time.Millisecond
 	})
 
 	JustBeforeEach(func() {
@@ -70,13 +72,13 @@ var _ = Describe("HealthChecks", func() {
 		u, _ := url.Parse(ts.URL)
 		check = &types.VirtualService_HealthCheck{
 			Endpoint:      &wrappers.StringValue{Value: fmt.Sprintf("http://:%s%s", u.Port(), checkPath)},
-			Period:        ptypes.DurationProto(50 * time.Millisecond),
-			Timeout:       ptypes.DurationProto(20 * time.Millisecond),
+			Period:        ptypes.DurationProto(period),
+			Timeout:       ptypes.DurationProto(timeout),
 			UpThreshold:   3,
 			DownThreshold: 2,
 		}
-		waitForUp = time.Duration(check.UpThreshold) * 150 * time.Millisecond
-		waitForDown = time.Duration(check.DownThreshold) * 150 * time.Millisecond
+		waitForUp = time.Duration(check.UpThreshold) * (timeout + period)
+		waitForDown = time.Duration(check.DownThreshold) * (timeout + period)
 	})
 
 	AfterEach(func() {
@@ -197,6 +199,39 @@ var _ = Describe("HealthChecks", func() {
 			Expect(checker.GetDownServers(id)).To(ConsistOf("127.0.0.1"))
 			time.Sleep(waitForUp)
 			Expect(checker.GetDownServers(id)).To(BeEmpty())
+		})
+
+		It("should keep the server state if we set the same health check", func() {
+			checker.SetHealthCheck(id, check)
+			checker.AddServer(id, "127.0.0.1")
+			checker.AddServer(id, "localhost")
+
+			time.Sleep(waitForUp)
+			downServers := checker.GetDownServers(id)
+			Expect(downServers).To(BeEmpty())
+
+			checker.SetHealthCheck(id, check)
+			Expect(checker.GetDownServers(id)).To(BeEmpty())
+		})
+
+		It("should be able to update the health check", func() {
+			checker.SetHealthCheck(id, check)
+			checker.AddServer(id, "127.0.0.1")
+			checker.AddServer(id, "localhost")
+
+			time.Sleep(waitForUp)
+			downServers := checker.GetDownServers(id)
+			Expect(downServers).To(BeEmpty())
+
+			check2 := proto.Clone(check).(*types.VirtualService_HealthCheck)
+			check2.DownThreshold = 1
+			check2.Endpoint = &wrappers.StringValue{Value: "http://localhost:99999/nowhere"}
+			checker.SetHealthCheck(id, check2)
+			Expect(checker.GetDownServers(id)).To(BeEmpty(), "nothing should change immediately after setting check")
+
+			// wait one period, since down threshold is 1 now
+			time.Sleep(period + timeout)
+			Expect(checker.GetDownServers(id)).To(ConsistOf("127.0.0.1", "localhost"))
 		})
 	})
 

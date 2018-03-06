@@ -264,11 +264,11 @@ var _ = Describe("Reconciler", func() {
 			}
 
 			// health checker
-			for _, service := range c.createdServices {
+			for _, service := range c.desiredServices {
 				checkerMock.On("SetHealthCheck", service.Id, service.HealthCheck).Return(nil)
 			}
 			for _, service := range c.deletedServices {
-				checkerMock.On("SetHealthCheck", service.Id, (*types.VirtualService_HealthCheck)(nil)).Return(nil)
+				checkerMock.On("SetHealthCheck", service.Id, &types.VirtualService_HealthCheck{}).Return(nil)
 			}
 			for service, server := range c.createdServers {
 				for _, server := range server {

@@ -152,9 +152,8 @@ func (r *reconciler) reconcile() {
 			}
 		}
 
-		if match == nil || !proto.Equal(desiredService.HealthCheck, match.HealthCheck) {
-			r.checker.SetHealthCheck(desiredService.Id, desiredService.HealthCheck)
-		}
+		// Relies on checker to check if health check is the same.
+		r.checker.SetHealthCheck(desiredService.Id, desiredService.HealthCheck)
 
 		desiredServers, err := r.store.ListServers(ctx, desiredService.Id)
 		if err != nil {
@@ -245,7 +244,7 @@ func (r *reconciler) reconcile() {
 		if !found {
 			log.Infof("Deleting virtual service: %v", actual)
 			// remove health checks
-			r.checker.SetHealthCheck(actual.Id, nil)
+			r.checker.SetHealthCheck(actual.Id, &types.VirtualService_HealthCheck{})
 			// remove from ipvs
 			if err := r.ipvs.DeleteService(actual.Key); err != nil {
 				log.Errorf("Unable to delete service: %v", err)
