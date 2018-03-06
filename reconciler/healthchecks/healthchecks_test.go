@@ -132,16 +132,18 @@ var _ = Describe("HealthChecks", func() {
 			Expect(downServers).To(ConsistOf("127.0.0.1"))
 		})
 
-		It("can transition to down", func() {
+		It("can transition to down and back up", func() {
 			checker.SetHealthCheck(id, check)
 			checker.AddServer(id, "127.0.0.1")
 			time.Sleep(waitForUp)
 
 			setServerStatus(http.StatusInternalServerError)
 			time.Sleep(waitForDown)
-			downServers := checker.GetDownServers(id)
+			Expect(checker.GetDownServers(id)).To(ConsistOf("127.0.0.1"))
 
-			Expect(downServers).To(ConsistOf("127.0.0.1"))
+			setServerStatus(http.StatusOK)
+			time.Sleep(waitForUp)
+			Expect(checker.GetDownServers(id)).To(BeEmpty())
 		})
 
 		It("should update health check, finding server", func() {
@@ -263,16 +265,18 @@ var _ = Describe("HealthChecks", func() {
 			Expect(downServers).To(BeEmpty())
 		})
 
-		It("can transition to up", func() {
+		It("can transition to up and back down", func() {
 			checker.SetHealthCheck(id, check)
 			checker.AddServer(id, "127.0.0.1")
 			time.Sleep(waitForDown)
 
 			setServerStatus(http.StatusOK)
 			time.Sleep(waitForUp)
-			downServers := checker.GetDownServers(id)
+			Expect(checker.GetDownServers(id)).To(BeEmpty())
 
-			Expect(downServers).To(BeEmpty())
+			setServerStatus(http.StatusInternalServerError)
+			time.Sleep(waitForDown)
+			Expect(checker.GetDownServers(id)).To(ConsistOf("127.0.0.1"))
 		})
 
 		It("should no longer report down after removing health check", func() {
