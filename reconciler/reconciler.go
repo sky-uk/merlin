@@ -5,12 +5,19 @@ import (
 
 	"context"
 
+	"fmt"
+
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes/wrappers"
 	log "github.com/sirupsen/logrus"
 	"github.com/sky-uk/merlin/ipvs"
 	"github.com/sky-uk/merlin/reconciler/healthchecks"
 	"github.com/sky-uk/merlin/types"
+)
+
+const (
+	initTimeout       = 10 * time.Second
+	reconcilerTimeout = 1 * time.Minute
 )
 
 type reconciler struct {
@@ -64,7 +71,35 @@ func (r *reconciler) Start() error {
 			}
 		}
 	}()
+	err := r.initializeHealthChecks()
+	if err != nil {
+		r.Stop()
+		return err
+	}
 	r.Sync()
+	return nil
+}
+
+func (r *reconciler) initializeHealthChecks() error {
+	ctx, cancel := context.WithTimeout(context.Background(), initTimeout)
+	defer cancel()
+
+	services, err := r.store.ListServices(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to query store when initializing: %v", err)
+	}
+
+	for _, service := range services {
+		r.checker.SetHealthCheck(service.Id, service.HealthCheck)
+		servers, err := r.store.ListServers(ctx, service.Id)
+		if err != nil {
+			return fmt.Errorf("failed to query store when initializing: %v", err)
+		}
+		for _, server := range servers {
+			r.checker.AddServer(service.Id, server.Key.Ip)
+		}
+	}
+
 	return nil
 }
 
@@ -78,7 +113,7 @@ func (r *reconciler) Sync() {
 }
 
 func (r *reconciler) reconcile() {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), reconcilerTimeout)
 	defer cancel()
 
 	desiredServices, err := r.store.ListServices(ctx)

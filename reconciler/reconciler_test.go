@@ -7,6 +7,8 @@ import (
 
 	"time"
 
+	"math"
+
 	"github.com/gogo/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/wrappers"
@@ -23,6 +25,7 @@ func TestReconciler(t *testing.T) {
 }
 
 var _ = Describe("Reconciler", func() {
+	// test fixtures
 	svcKey1 := &types.VirtualService_Key{
 		Ip:       "10.10.10.1",
 		Port:     101,
@@ -99,196 +102,224 @@ var _ = Describe("Reconciler", func() {
 	disabledServer2 := proto.Clone(server2).(*types.RealServer)
 	disabledServer2.Config.Weight = &wrappers.UInt32Value{Value: 0}
 
-	type servers map[*types.VirtualService][]*types.RealServer
-	// map of serviceID to list of IPs
-	type serverIPs map[string][]string
+	Describe("reconcile", func() {
+		type servers map[*types.VirtualService][]*types.RealServer
+		// map of serviceID to list of IPs
+		type serverIPs map[string][]string
 
-	type reconcileCase struct {
-		// services
-		actualServices  []*types.VirtualService
-		desiredServices []*types.VirtualService
-		createdServices []*types.VirtualService
-		updatedServices []*types.VirtualService
-		deletedServices []*types.VirtualService
+		type reconcileCase struct {
+			// services
+			actualServices  []*types.VirtualService
+			desiredServices []*types.VirtualService
+			createdServices []*types.VirtualService
+			updatedServices []*types.VirtualService
+			deletedServices []*types.VirtualService
 
-		// servers
-		actualServers  servers
-		desiredServers servers
-		createdServers servers
-		updatedServers servers
-		deletedServers servers
+			// servers
+			actualServers  servers
+			desiredServers servers
+			createdServers servers
+			updatedServers servers
+			deletedServers servers
 
-		// health check
-		downIPs serverIPs
-	}
-
-	cases := []TableEntry{
-		Entry("add new service", reconcileCase{
-			actualServices:  []*types.VirtualService{svc2},
-			desiredServices: []*types.VirtualService{svc1, svc2},
-			createdServices: []*types.VirtualService{svc1},
-		}),
-		Entry("update service", reconcileCase{
-			actualServices:  []*types.VirtualService{svc1, svc2},
-			desiredServices: []*types.VirtualService{svc1Updated, svc2},
-			updatedServices: []*types.VirtualService{svc1Updated},
-		}),
-		Entry("no change in service", reconcileCase{
-			actualServices:  []*types.VirtualService{svc1Updated, svc2},
-			desiredServices: []*types.VirtualService{svc1Updated, svc2},
-		}),
-		Entry("delete service", reconcileCase{
-			actualServices:  []*types.VirtualService{svc1, svc2},
-			desiredServices: []*types.VirtualService{svc1},
-			deletedServices: []*types.VirtualService{svc2},
-		}),
-		Entry("add server", reconcileCase{
-			actualServices:  []*types.VirtualService{svc1},
-			desiredServices: []*types.VirtualService{svc1},
-			actualServers:   servers{svc1: {server2}},
-			desiredServers:  servers{svc1: {server1, server2}},
-			createdServers:  servers{svc1: {server1}},
-		}),
-		Entry("update server", reconcileCase{
-			actualServices:  []*types.VirtualService{svc1},
-			desiredServices: []*types.VirtualService{svc1},
-			actualServers:   servers{svc1: {server1, server2}},
-			desiredServers:  servers{svc1: {server1Updated, server2}},
-			updatedServers:  servers{svc1: {server1Updated}},
-		}),
-		Entry("delete server", reconcileCase{
-			actualServices:  []*types.VirtualService{svc1},
-			desiredServices: []*types.VirtualService{svc1},
-			actualServers:   servers{svc1: {server1, server2}},
-			desiredServers:  servers{svc1: {server2}},
-			deletedServers:  servers{svc1: {server1}},
-		}),
-		Entry("different order of flags causes no update", reconcileCase{
-			actualServices:  []*types.VirtualService{svc1},
-			desiredServices: []*types.VirtualService{svc1ReorderedFlags},
-		}),
-		Entry("down server gets a weight of 0", reconcileCase{
-			actualServices:  []*types.VirtualService{svc1},
-			desiredServices: []*types.VirtualService{svc1},
-			actualServers:   servers{svc1: {server1, server2}},
-			desiredServers:  servers{svc1: {server1, server2}},
-			downIPs:         serverIPs{svc1.Id: {server2.Key.Ip}},
-			updatedServers:  servers{svc1: {disabledServer2}},
-		}),
-	}
-
-	DescribeTable("reconcile", func(c reconcileCase) {
-		storeMock := &storeMock{}
-		ipvsMock := &ipvsMock{}
-		checkerMock := &checkerMock{}
-		r := New(0, storeMock, ipvsMock).(*reconciler)
-		r.checker = checkerMock
-
-		// set defaults
-		if c.actualServices == nil {
-			c.actualServices = []*types.VirtualService{}
+			// health check
+			downIPs serverIPs
 		}
-		if c.desiredServices == nil {
-			c.desiredServices = []*types.VirtualService{}
+
+		cases := []TableEntry{
+			Entry("add new service", reconcileCase{
+				actualServices:  []*types.VirtualService{svc2},
+				desiredServices: []*types.VirtualService{svc1, svc2},
+				createdServices: []*types.VirtualService{svc1},
+			}),
+			Entry("update service", reconcileCase{
+				actualServices:  []*types.VirtualService{svc1, svc2},
+				desiredServices: []*types.VirtualService{svc1Updated, svc2},
+				updatedServices: []*types.VirtualService{svc1Updated},
+			}),
+			Entry("no change in service", reconcileCase{
+				actualServices:  []*types.VirtualService{svc1Updated, svc2},
+				desiredServices: []*types.VirtualService{svc1Updated, svc2},
+			}),
+			Entry("delete service", reconcileCase{
+				actualServices:  []*types.VirtualService{svc1, svc2},
+				desiredServices: []*types.VirtualService{svc1},
+				deletedServices: []*types.VirtualService{svc2},
+			}),
+			Entry("add server", reconcileCase{
+				actualServices:  []*types.VirtualService{svc1},
+				desiredServices: []*types.VirtualService{svc1},
+				actualServers:   servers{svc1: {server2}},
+				desiredServers:  servers{svc1: {server1, server2}},
+				createdServers:  servers{svc1: {server1}},
+			}),
+			Entry("update server", reconcileCase{
+				actualServices:  []*types.VirtualService{svc1},
+				desiredServices: []*types.VirtualService{svc1},
+				actualServers:   servers{svc1: {server1, server2}},
+				desiredServers:  servers{svc1: {server1Updated, server2}},
+				updatedServers:  servers{svc1: {server1Updated}},
+			}),
+			Entry("delete server", reconcileCase{
+				actualServices:  []*types.VirtualService{svc1},
+				desiredServices: []*types.VirtualService{svc1},
+				actualServers:   servers{svc1: {server1, server2}},
+				desiredServers:  servers{svc1: {server2}},
+				deletedServers:  servers{svc1: {server1}},
+			}),
+			Entry("different order of flags causes no update", reconcileCase{
+				actualServices:  []*types.VirtualService{svc1},
+				desiredServices: []*types.VirtualService{svc1ReorderedFlags},
+			}),
+			Entry("down server gets a weight of 0", reconcileCase{
+				actualServices:  []*types.VirtualService{svc1},
+				desiredServices: []*types.VirtualService{svc1},
+				actualServers:   servers{svc1: {server1, server2}},
+				desiredServers:  servers{svc1: {server1, server2}},
+				downIPs:         serverIPs{svc1.Id: {server2.Key.Ip}},
+				updatedServers:  servers{svc1: {disabledServer2}},
+			}),
 		}
-		if c.actualServers == nil {
-			c.actualServers = make(servers)
-		}
-		if c.desiredServers == nil {
-			c.desiredServers = make(servers)
-		}
-		if c.downIPs == nil {
-			c.downIPs = make(serverIPs)
-		}
-		for _, svc := range c.desiredServices {
-			if _, ok := c.actualServers[svc]; !ok {
-				c.actualServers[svc] = []*types.RealServer{}
+
+		DescribeTable("reconcile", func(c reconcileCase) {
+			storeMock := &storeMock{}
+			ipvsMock := &ipvsMock{}
+			checkerMock := &checkerMock{}
+			r := New(math.MaxInt64, storeMock, ipvsMock).(*reconciler)
+			r.checker = checkerMock
+
+			// set defaults
+			if c.actualServices == nil {
+				c.actualServices = []*types.VirtualService{}
 			}
-			if _, ok := c.desiredServers[svc]; !ok {
-				c.desiredServers[svc] = []*types.RealServer{}
+			if c.desiredServices == nil {
+				c.desiredServices = []*types.VirtualService{}
 			}
-			if _, ok := c.downIPs[svc.Id]; !ok {
-				c.downIPs[svc.Id] = []string{}
+			if c.actualServers == nil {
+				c.actualServers = make(servers)
 			}
-		}
+			if c.desiredServers == nil {
+				c.desiredServers = make(servers)
+			}
+			if c.downIPs == nil {
+				c.downIPs = make(serverIPs)
+			}
+			for _, svc := range c.desiredServices {
+				if _, ok := c.actualServers[svc]; !ok {
+					c.actualServers[svc] = []*types.RealServer{}
+				}
+				if _, ok := c.desiredServers[svc]; !ok {
+					c.desiredServers[svc] = []*types.RealServer{}
+				}
+				if _, ok := c.downIPs[svc.Id]; !ok {
+					c.downIPs[svc.Id] = []string{}
+				}
+			}
 
-		// add expectations
-		// store
-		// clone services to ensure reconciler gets different instances from the store versus ipvs
-		var storeServices []*types.VirtualService
-		for _, service := range c.desiredServices {
-			storeServices = append(storeServices, proto.Clone(service).(*types.VirtualService))
-		}
-		storeMock.On("ListServices", mock.Anything).Return(storeServices, nil)
-		for k, v := range c.desiredServers {
-			// clone servers to ensure reconciler gets different instances from the store versus ipvs
-			var storeServers []*types.RealServer
-			for _, server := range v {
-				storeServers = append(storeServers, proto.Clone(server).(*types.RealServer))
+			// add expectations
+			// store
+			// clone services to ensure reconciler gets different instances from the store versus ipvs
+			var storeServices []*types.VirtualService
+			for _, service := range c.desiredServices {
+				storeServices = append(storeServices, proto.Clone(service).(*types.VirtualService))
 			}
-			storeMock.On("ListServers", mock.Anything, k.Id).Return(storeServers, nil)
-		}
+			storeMock.On("ListServices", mock.Anything).Return(storeServices, nil)
+			for k, v := range c.desiredServers {
+				// clone servers to ensure reconciler gets different instances from the store versus ipvs
+				var storeServers []*types.RealServer
+				for _, server := range v {
+					storeServers = append(storeServers, proto.Clone(server).(*types.RealServer))
+				}
+				storeMock.On("ListServers", mock.Anything, k.Id).Return(storeServers, nil)
+			}
 
-		// ipvs
-		ipvsMock.On("ListServices").Return(c.actualServices, nil)
-		for _, s := range c.createdServices {
-			ipvsMock.On("AddService", s).Return(nil)
-		}
-		for _, s := range c.updatedServices {
-			ipvsMock.On("UpdateService", s).Return(nil)
-		}
-		for _, s := range c.deletedServices {
-			ipvsMock.On("DeleteService", s.Key).Return(nil)
-		}
-		for k, v := range c.actualServers {
-			ipvsMock.On("ListServers", k.Key).Return(v, nil)
-		}
-		for k, v := range c.createdServers {
-			for _, server := range v {
-				ipvsMock.On("AddServer", k.Key, server).Return(nil)
+			// ipvs
+			ipvsMock.On("ListServices").Return(c.actualServices, nil)
+			for _, s := range c.createdServices {
+				ipvsMock.On("AddService", s).Return(nil)
 			}
-		}
-		for k, v := range c.updatedServers {
-			for _, server := range v {
-				ipvsMock.On("UpdateServer", k.Key, server).Return(nil)
+			for _, s := range c.updatedServices {
+				ipvsMock.On("UpdateService", s).Return(nil)
 			}
-		}
-		for k, v := range c.deletedServers {
-			for _, server := range v {
-				ipvsMock.On("DeleteServer", k.Key, server).Return(nil)
+			for _, s := range c.deletedServices {
+				ipvsMock.On("DeleteService", s.Key).Return(nil)
 			}
-		}
+			for k, v := range c.actualServers {
+				ipvsMock.On("ListServers", k.Key).Return(v, nil)
+			}
+			for k, v := range c.createdServers {
+				for _, server := range v {
+					ipvsMock.On("AddServer", k.Key, server).Return(nil)
+				}
+			}
+			for k, v := range c.updatedServers {
+				for _, server := range v {
+					ipvsMock.On("UpdateServer", k.Key, server).Return(nil)
+				}
+			}
+			for k, v := range c.deletedServers {
+				for _, server := range v {
+					ipvsMock.On("DeleteServer", k.Key, server).Return(nil)
+				}
+			}
 
-		// health checker
-		for _, service := range c.createdServices {
-			checkerMock.On("SetHealthCheck", service.Id, service.HealthCheck).Return(nil)
-		}
-		for _, service := range c.deletedServices {
-			checkerMock.On("SetHealthCheck", service.Id, (*types.VirtualService_HealthCheck)(nil)).Return(nil)
-		}
-		for service, server := range c.createdServers {
-			for _, server := range server {
-				checkerMock.On("AddServer", service.Id, server.Key.Ip)
+			// health checker
+			for _, service := range c.createdServices {
+				checkerMock.On("SetHealthCheck", service.Id, service.HealthCheck).Return(nil)
 			}
-		}
-		for service, server := range c.deletedServers {
-			for _, server := range server {
-				checkerMock.On("RemServer", service.Id, server.Key.Ip)
+			for _, service := range c.deletedServices {
+				checkerMock.On("SetHealthCheck", service.Id, (*types.VirtualService_HealthCheck)(nil)).Return(nil)
 			}
-		}
-		for serviceID, ips := range c.downIPs {
-			checkerMock.On("GetDownServers", serviceID).Return(ips)
-		}
+			for service, server := range c.createdServers {
+				for _, server := range server {
+					checkerMock.On("AddServer", service.Id, server.Key.Ip)
+				}
+			}
+			for service, server := range c.deletedServers {
+				for _, server := range server {
+					checkerMock.On("RemServer", service.Id, server.Key.Ip)
+				}
+			}
+			for serviceID, ips := range c.downIPs {
+				checkerMock.On("GetDownServers", serviceID).Return(ips)
+			}
 
-		// reconcile
-		r.reconcile()
+			// reconcile
+			r.reconcile()
 
-		// ensure expected outcomes
-		storeMock.AssertExpectations(GinkgoT())
-		ipvsMock.AssertExpectations(GinkgoT())
-		checkerMock.AssertExpectations(GinkgoT())
-	},
-		cases...)
+			// ensure expected outcomes
+			storeMock.AssertExpectations(GinkgoT())
+			ipvsMock.AssertExpectations(GinkgoT())
+			checkerMock.AssertExpectations(GinkgoT())
+		},
+			cases...)
+	})
+
+	Describe("Start/Stop", func() {
+		It("should add health checks for existing real servers on start and stop checker on stop", func() {
+			storeMock := &storeMock{}
+			ipvsMock := &ipvsMock{}
+			checkerMock := &checkerMock{}
+			r := New(math.MaxInt64, storeMock, ipvsMock).(*reconciler)
+			r.checker = checkerMock
+
+			storeServices := []*types.VirtualService{svc1}
+			storeMock.On("ListServices", mock.Anything).Return(storeServices, nil)
+			storeServers := []*types.RealServer{server1, server2}
+			storeMock.On("ListServers", mock.Anything, svc1.Id).Return(storeServers, nil)
+
+			checkerMock.On("SetHealthCheck", svc1.Id, svc1.HealthCheck).Return(nil)
+			checkerMock.On("AddServer", svc1.Id, server1.Key.Ip)
+			checkerMock.On("AddServer", svc1.Id, server2.Key.Ip)
+			checkerMock.On("Stop").Return()
+
+			err := r.Start()
+			Expect(err).ToNot(HaveOccurred())
+			r.Stop()
+
+			checkerMock.AssertExpectations(GinkgoT())
+		})
+	})
 })
 
 type storeMock struct {

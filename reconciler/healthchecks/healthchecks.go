@@ -218,6 +218,7 @@ func (c *checker) Stop() {
 
 // healthCheck a real server and update its status
 func (s *checkStatus) healthCheck(stopCh <-chan struct{}, server string, healthCheck *types.VirtualService_HealthCheck) {
+	log.Infof("Starting health check for %s: %v", server, healthCheck)
 	per, _ := ptypes.Duration(healthCheck.Period)
 	t := time.NewTicker(per)
 	defer t.Stop()
@@ -226,6 +227,7 @@ func (s *checkStatus) healthCheck(stopCh <-chan struct{}, server string, healthC
 		case <-t.C:
 			s.performHealthCheck(server, healthCheck)
 		case <-stopCh:
+			log.Infof("Stopped health check for %s", server)
 			return
 		}
 	}
