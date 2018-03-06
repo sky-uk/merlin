@@ -12,6 +12,7 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
+	"github.com/golang/protobuf/ptypes/wrappers"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
@@ -68,7 +69,7 @@ var _ = Describe("HealthChecks", func() {
 
 		u, _ := url.Parse(ts.URL)
 		check = &types.VirtualService_HealthCheck{
-			Endpoint:      fmt.Sprintf("http://:%s%s", u.Port(), checkPath),
+			Endpoint:      &wrappers.StringValue{Value: fmt.Sprintf("http://:%s%s", u.Port(), checkPath)},
 			Period:        ptypes.DurationProto(50 * time.Millisecond),
 			Timeout:       ptypes.DurationProto(20 * time.Millisecond),
 			UpThreshold:   3,
@@ -85,7 +86,7 @@ var _ = Describe("HealthChecks", func() {
 
 	It("should report server is down if non-responsive", func() {
 		checker := New()
-		check.Endpoint = "http://:9999/nowhere"
+		check.Endpoint = &wrappers.StringValue{Value: "http://:9999/nowhere"}
 		checker.SetHealthCheck(id, check)
 		checker.AddServer(id, "127.0.0.1")
 
@@ -97,7 +98,7 @@ var _ = Describe("HealthChecks", func() {
 
 	DescribeTable("validate health check", func(endpoint string) {
 		checker := New()
-		check.Endpoint = endpoint
+		check.Endpoint = &wrappers.StringValue{Value: endpoint}
 		err := checker.SetHealthCheck(id, check)
 		Expect(err).To(HaveOccurred())
 	},
@@ -143,7 +144,7 @@ var _ = Describe("HealthChecks", func() {
 
 		It("should update health check, finding server", func() {
 			brokenCheck := proto.Clone(check).(*types.VirtualService_HealthCheck)
-			brokenCheck.Endpoint = "http://:9999/nowhere"
+			brokenCheck.Endpoint = &wrappers.StringValue{Value: "http://:9999/nowhere"}
 			checker.SetHealthCheck(id, brokenCheck)
 			checker.AddServer(id, "127.0.0.1")
 
@@ -178,7 +179,7 @@ var _ = Describe("HealthChecks", func() {
 
 			// changing health check to broken should work as well
 			brokenCheck := proto.Clone(check).(*types.VirtualService_HealthCheck)
-			brokenCheck.Endpoint = "http://:9999/nowhere"
+			brokenCheck.Endpoint = &wrappers.StringValue{Value: "http://:9999/nowhere"}
 			checker.SetHealthCheck(id, brokenCheck)
 			time.Sleep(waitForDown)
 			Expect(checker.GetDownServers(id)).To(ConsistOf("127.0.0.1", "localhost"))

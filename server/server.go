@@ -70,8 +70,8 @@ func validateService(service *types.VirtualService) error {
 	if service.Config.Scheduler == "" {
 		return status.Error(codes.InvalidArgument, "service scheduler required")
 	}
-	if service.HealthCheck != nil && service.HealthCheck.Endpoint != "" {
-		u, err := url.Parse(service.HealthCheck.Endpoint)
+	if service.HealthCheck.Endpoint.GetValue() != "" {
+		u, err := url.Parse(service.HealthCheck.Endpoint.Value)
 		if err != nil {
 			return status.Errorf(codes.InvalidArgument, "health check endpoint %q must be a valid url: %v",
 				service.HealthCheck.Endpoint, err)
@@ -146,6 +146,10 @@ func (s *server) UpdateService(ctx context.Context, update *types.VirtualService
 	}
 	proto.Merge(next.Config, update.Config)
 	proto.Merge(next.HealthCheck, update.HealthCheck)
+	// force update of endpoint if set
+	if update.HealthCheck.Endpoint != nil {
+		next.HealthCheck.Endpoint = update.HealthCheck.Endpoint
+	}
 
 	if proto.Equal(prev, next) {
 		log.Infof("No update of %s", update.Id)

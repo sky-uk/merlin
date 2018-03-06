@@ -70,7 +70,7 @@ func (c *checker) GetDownServers(id string) []string {
 	defer c.Unlock()
 
 	info, ok := c.infos[id]
-	if !ok || info.healthCheck.Endpoint == "" {
+	if !ok || info.healthCheck.Endpoint.GetValue() == "" {
 		return nil
 	}
 
@@ -89,10 +89,10 @@ func validateCheck(check *types.VirtualService_HealthCheck) error {
 	if check == nil {
 		return errors.New("check should be non-nil")
 	}
-	if check.Endpoint == "" {
+	if check.Endpoint.GetValue() == "" {
 		return nil
 	}
-	u, err := url.Parse(check.Endpoint)
+	u, err := url.Parse(check.Endpoint.GetValue())
 	if err != nil {
 		return fmt.Errorf("endpoint not a URL: %v", err)
 	}
@@ -136,7 +136,7 @@ func (c *checker) updateHealthCheck(info *checkInfo, check *types.VirtualService
 		delete(info.serverStopChs, server)
 	}
 
-	if check.Endpoint == "" {
+	if check.Endpoint.GetValue() == "" {
 		return
 	}
 
@@ -171,7 +171,7 @@ func (c *checker) AddServer(id, server string) {
 	}
 	info.serverStatuses[server] = status
 
-	if info.healthCheck.Endpoint == "" {
+	if info.healthCheck.Endpoint.GetValue() == "" {
 		//  nothing more to do, return
 		return
 	}
@@ -232,7 +232,7 @@ func (s *checkStatus) healthCheck(stopCh <-chan struct{}, server string, healthC
 }
 
 func (s *checkStatus) performHealthCheck(server string, healthCheck *types.VirtualService_HealthCheck) {
-	checkURL, err := url.Parse(healthCheck.Endpoint)
+	checkURL, err := url.Parse(healthCheck.Endpoint.GetValue())
 	if err != nil {
 		panic(err)
 	}

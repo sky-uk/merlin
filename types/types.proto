@@ -35,8 +35,9 @@ message VirtualService {
     }
 
     message HealthCheck {
-        // Endpoint is in the format <scheme>:<port>/<path>, e.g. http:80/health.
-        string endpoint = 1;
+        // Endpoint should be a valid url, expected format is <scheme>://:<port>/<path>, e.g. http://:80/health.
+        // Set to an empty string to disable health check.
+        google.protobuf.StringValue endpoint = 1;
         google.protobuf.Duration period = 2;
         google.protobuf.Duration timeout = 3;
         uint32 up_threshold = 4;

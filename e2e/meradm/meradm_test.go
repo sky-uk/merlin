@@ -83,12 +83,12 @@ var _ = Describe("Meradm", func() {
 			Expect(err).To(HaveOccurred(), "should have failed validation")
 		})
 
-		FIt("can set a healthcheck", func() {
+		It("can set a healthcheck", func() {
 			meradm("service", "add", "service1", "tcp", "10.1.1.1:888", "-s=wrr", "-b=flag-1,flag-2",
 				"--health-endpoint=http://:556/health", "--health-period=5s", "--health-timeout=1s",
 				"--health-up=2", "--health-down=1")
 			// make sure we can edit individual parts of the health check
-			//meradm("service", "edit", "service1", "--health-period=10s")
+			meradm("service", "edit", "service1", "--health-period=10s")
 
 			out := meradmList()
 
