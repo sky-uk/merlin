@@ -34,6 +34,13 @@ message VirtualService {
         repeated string flags = 2;
     }
 
+    message RealServerConfig {
+        // ForwardMethod is the forwarding method for all the real servers.
+        ForwardMethod forward_method = 1;
+        // ForwardPort is the forwarding port for all the real servers.
+        uint32 forward_port = 2;
+    }
+
     message HealthCheck {
         // Endpoint should be a valid url, expected format is <scheme>://:<port>/<path>, e.g. http://:80/health.
         // Set to an empty string to disable health check.
@@ -52,6 +59,8 @@ message VirtualService {
     Config config = 3;
     // HealthCheck is the check done by merlin against the associated real servers.
     HealthCheck health_check = 4;
+    // RealServerConfig contains the desired forwarding config for all real servers.
+    RealServerConfig real_server_config = 5;
 }
 
 // ForwardMethod to forward packets to real servers.
@@ -65,11 +74,13 @@ enum ForwardMethod {
 message RealServer {
     message Key {
         string ip = 1;
+        // Port is read-only. It will be ignored if set. Use VirtualService.RealServerConfig instead.
         uint32 port = 2;
     }
 
     message Config {
         google.protobuf.UInt32Value weight = 1;
+        // Forward field is read-only. It will be ignored if set. Use VirtualService.RealServerConfig instead.
         ForwardMethod forward = 2;
     }
 

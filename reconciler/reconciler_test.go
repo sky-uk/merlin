@@ -26,6 +26,10 @@ func TestReconciler(t *testing.T) {
 
 var _ = Describe("Reconciler", func() {
 	// test fixtures
+	serverConfig1 := &types.VirtualService_RealServerConfig{
+		ForwardPort:   501,
+		ForwardMethod: types.ForwardMethod_ROUTE,
+	}
 	svcKey1 := &types.VirtualService_Key{
 		Ip:       "10.10.10.1",
 		Port:     101,
@@ -45,9 +49,10 @@ var _ = Describe("Reconciler", func() {
 			UpThreshold:   2,
 			DownThreshold: 1,
 		},
+		RealServerConfig: serverConfig1,
 	}
-	svc1Updated := proto.Clone(svc1).(*types.VirtualService)
-	svc1Updated.Config = &types.VirtualService_Config{
+	svc1UpdatedScheduler := proto.Clone(svc1).(*types.VirtualService)
+	svc1UpdatedScheduler.Config = &types.VirtualService_Config{
 		Scheduler: "wrr",
 		Flags:     []string{"flag-3"},
 	}
@@ -56,51 +61,77 @@ var _ = Describe("Reconciler", func() {
 		Scheduler: "sh",
 		Flags:     []string{"flag-2", "flag-1"},
 	}
+	svc1UpdatedForwardPort := proto.Clone(svc1).(*types.VirtualService)
+	svc1UpdatedForwardPort.RealServerConfig = &types.VirtualService_RealServerConfig{
+		ForwardPort:   999,
+		ForwardMethod: serverConfig1.ForwardMethod,
+	}
+	svc1UpdatedForwardMethod := proto.Clone(svc1).(*types.VirtualService)
+	svc1UpdatedForwardMethod.RealServerConfig = &types.VirtualService_RealServerConfig{
+		ForwardPort:   serverConfig1.ForwardPort,
+		ForwardMethod: types.ForwardMethod_MASQ,
+	}
+
 	svcKey2 := &types.VirtualService_Key{
 		Ip:       "10.10.10.2",
 		Port:     102,
 		Protocol: types.Protocol_UDP,
 	}
 	svc2 := &types.VirtualService{
+		Id:  "svc2",
 		Key: svcKey2,
 		Config: &types.VirtualService_Config{
 			Scheduler: "rr",
 			Flags:     []string{"flag-1"},
 		},
-		Id: "svc2",
+		RealServerConfig: serverConfig1,
 	}
 
+	// servers
+	// These are split into the store's server, and the 'actual' server which comes from IPVS.
+	// The difference is IPVS will report a port and forward method on the server, whereas the store won't.
 	serverKey1 := &types.RealServer_Key{
-		Ip:   "172.16.1.1",
-		Port: 501,
+		Ip: "172.16.1.1",
 	}
 	server1 := &types.RealServer{
 		Key: serverKey1,
 		Config: &types.RealServer_Config{
-			Weight:  &wrappers.UInt32Value{Value: 1},
-			Forward: types.ForwardMethod_ROUTE,
+			Weight: &wrappers.UInt32Value{Value: 1},
 		},
 	}
-	server1Updated := &types.RealServer{
-		Key: serverKey1,
-		Config: &types.RealServer_Config{
-			Weight:  &wrappers.UInt32Value{Value: 0},
-			Forward: types.ForwardMethod_ROUTE,
-		},
-	}
+	actualServerKey1 := proto.Clone(serverKey1).(*types.RealServer_Key)
+	actualServerKey1.Port = serverConfig1.ForwardPort
+	actualServer1 := proto.Clone(server1).(*types.RealServer)
+	actualServer1.Key = actualServerKey1
+	actualServer1.Config.Forward = serverConfig1.ForwardMethod
+
+	server1UpdatedWeight := proto.Clone(server1).(*types.RealServer)
+	server1UpdatedWeight.Config.Weight = &wrappers.UInt32Value{Value: 3}
+	actualServer1UpdatedWeight := proto.Clone(actualServer1).(*types.RealServer)
+	actualServer1UpdatedWeight.Config.Weight = server1UpdatedWeight.Config.Weight
+
+	actualServer1UpdatedForwardPort := proto.Clone(actualServer1).(*types.RealServer)
+	actualServer1UpdatedForwardPort.Key.Port = svc1UpdatedForwardPort.RealServerConfig.ForwardPort
+	actualServer1UpdatedForwardMethod := proto.Clone(actualServer1).(*types.RealServer)
+	actualServer1UpdatedForwardMethod.Config.Forward = svc1UpdatedForwardMethod.RealServerConfig.ForwardMethod
+
 	serverKey2 := &types.RealServer_Key{
-		Ip:   "172.16.1.2",
-		Port: 502,
+		Ip: "172.16.1.2",
 	}
 	server2 := &types.RealServer{
 		Key: serverKey2,
 		Config: &types.RealServer_Config{
-			Weight:  &wrappers.UInt32Value{Value: 1},
-			Forward: types.ForwardMethod_ROUTE,
+			Weight: &wrappers.UInt32Value{Value: 1},
 		},
 	}
-	disabledServer2 := proto.Clone(server2).(*types.RealServer)
-	disabledServer2.Config.Weight = &wrappers.UInt32Value{Value: 0}
+	actualServerKey2 := proto.Clone(serverKey2).(*types.RealServer_Key)
+	actualServerKey2.Port = serverConfig1.ForwardPort
+	actualServer2 := proto.Clone(server2).(*types.RealServer)
+	actualServer2.Key = actualServerKey2
+	actualServer2.Config.Forward = serverConfig1.ForwardMethod
+
+	actualDisabledServer2 := proto.Clone(actualServer2).(*types.RealServer)
+	actualDisabledServer2.Config.Weight = &wrappers.UInt32Value{Value: 0}
 
 	Describe("reconcile", func() {
 		type servers map[*types.VirtualService][]*types.RealServer
@@ -123,7 +154,9 @@ var _ = Describe("Reconciler", func() {
 			deletedServers servers
 
 			// health check
-			downIPs serverIPs
+			downIPs            serverIPs
+			healthCheckAdded   serverIPs
+			healthCheckRemoved serverIPs
 		}
 
 		cases := []TableEntry{
@@ -134,12 +167,12 @@ var _ = Describe("Reconciler", func() {
 			}),
 			Entry("update service", reconcileCase{
 				actualServices:  []*types.VirtualService{svc1, svc2},
-				desiredServices: []*types.VirtualService{svc1Updated, svc2},
-				updatedServices: []*types.VirtualService{svc1Updated},
+				desiredServices: []*types.VirtualService{svc1UpdatedScheduler, svc2},
+				updatedServices: []*types.VirtualService{svc1UpdatedScheduler},
 			}),
 			Entry("no change in service", reconcileCase{
-				actualServices:  []*types.VirtualService{svc1Updated, svc2},
-				desiredServices: []*types.VirtualService{svc1Updated, svc2},
+				actualServices:  []*types.VirtualService{svc1UpdatedScheduler, svc2},
+				desiredServices: []*types.VirtualService{svc1UpdatedScheduler, svc2},
 			}),
 			Entry("delete service", reconcileCase{
 				actualServices:  []*types.VirtualService{svc1, svc2},
@@ -147,25 +180,27 @@ var _ = Describe("Reconciler", func() {
 				deletedServices: []*types.VirtualService{svc2},
 			}),
 			Entry("add server", reconcileCase{
-				actualServices:  []*types.VirtualService{svc1},
-				desiredServices: []*types.VirtualService{svc1},
-				actualServers:   servers{svc1: {server2}},
-				desiredServers:  servers{svc1: {server1, server2}},
-				createdServers:  servers{svc1: {server1}},
+				actualServices:   []*types.VirtualService{svc1},
+				desiredServices:  []*types.VirtualService{svc1},
+				actualServers:    servers{svc1: {actualServer2}},
+				desiredServers:   servers{svc1: {server1, server2}},
+				createdServers:   servers{svc1: {actualServer1}},
+				healthCheckAdded: serverIPs{svc1.Id: {server1.Key.Ip}},
 			}),
 			Entry("update server", reconcileCase{
 				actualServices:  []*types.VirtualService{svc1},
 				desiredServices: []*types.VirtualService{svc1},
-				actualServers:   servers{svc1: {server1, server2}},
-				desiredServers:  servers{svc1: {server1Updated, server2}},
-				updatedServers:  servers{svc1: {server1Updated}},
+				actualServers:   servers{svc1: {actualServer1, actualServer2}},
+				desiredServers:  servers{svc1: {server1UpdatedWeight, server2}},
+				updatedServers:  servers{svc1: {actualServer1UpdatedWeight}},
 			}),
 			Entry("delete server", reconcileCase{
-				actualServices:  []*types.VirtualService{svc1},
-				desiredServices: []*types.VirtualService{svc1},
-				actualServers:   servers{svc1: {server1, server2}},
-				desiredServers:  servers{svc1: {server2}},
-				deletedServers:  servers{svc1: {server1}},
+				actualServices:     []*types.VirtualService{svc1},
+				desiredServices:    []*types.VirtualService{svc1},
+				actualServers:      servers{svc1: {actualServer1, actualServer2}},
+				desiredServers:     servers{svc1: {server2}},
+				deletedServers:     servers{svc1: {actualServer1}},
+				healthCheckRemoved: serverIPs{svc1.Id: {server1.Key.Ip}},
 			}),
 			Entry("different order of flags causes no update", reconcileCase{
 				actualServices:  []*types.VirtualService{svc1},
@@ -174,10 +209,20 @@ var _ = Describe("Reconciler", func() {
 			Entry("down server gets a weight of 0", reconcileCase{
 				actualServices:  []*types.VirtualService{svc1},
 				desiredServices: []*types.VirtualService{svc1},
-				actualServers:   servers{svc1: {server1, server2}},
+				actualServers:   servers{svc1: {actualServer1, actualServer2}},
 				desiredServers:  servers{svc1: {server1, server2}},
 				downIPs:         serverIPs{svc1.Id: {server2.Key.Ip}},
-				updatedServers:  servers{svc1: {disabledServer2}},
+				updatedServers:  servers{svc1: {actualDisabledServer2}},
+			}),
+			Entry("forward port changes", reconcileCase{
+				actualServices:     []*types.VirtualService{svc1},
+				desiredServices:    []*types.VirtualService{svc1UpdatedForwardPort},
+				actualServers:      servers{svc1: {actualServer1}},
+				desiredServers:     servers{svc1: {server1}},
+				deletedServers:     servers{svc1: {actualServer1}},
+				createdServers:     servers{svc1: {actualServer1UpdatedForwardPort}},
+				healthCheckAdded:   serverIPs{},
+				healthCheckRemoved: serverIPs{},
 			}),
 		}
 
@@ -270,14 +315,14 @@ var _ = Describe("Reconciler", func() {
 			for _, service := range c.deletedServices {
 				checkerMock.On("SetHealthCheck", service.Id, &types.VirtualService_HealthCheck{}).Return(nil)
 			}
-			for service, server := range c.createdServers {
-				for _, server := range server {
-					checkerMock.On("AddServer", service.Id, server.Key.Ip)
+			for serviceID, ips := range c.healthCheckAdded {
+				for _, ip := range ips {
+					checkerMock.On("AddServer", serviceID, ip)
 				}
 			}
-			for service, server := range c.deletedServers {
-				for _, server := range server {
-					checkerMock.On("RemServer", service.Id, server.Key.Ip)
+			for serviceID, ips := range c.healthCheckRemoved {
+				for _, ip := range ips {
+					checkerMock.On("RemServer", serviceID, ip)
 				}
 			}
 			for serviceID, ips := range c.downIPs {

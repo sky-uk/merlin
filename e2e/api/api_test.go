@@ -35,6 +35,19 @@ var _ = Describe("API", func() {
 		client     types.MerlinClient
 		ctx        context.Context
 		cancelCall context.CancelFunc
+
+		validKey = &types.VirtualService_Key{
+			Ip:       "127.0.0.1",
+			Port:     8080,
+			Protocol: types.Protocol_TCP,
+		}
+		validConfig = &types.VirtualService_Config{
+			Scheduler: "sh",
+		}
+		validRealServerConfig = &types.VirtualService_RealServerConfig{
+			ForwardPort:   900,
+			ForwardMethod: types.ForwardMethod_MASQ,
+		}
 	)
 
 	BeforeEach(func() {
@@ -74,14 +87,9 @@ var _ = Describe("API", func() {
 		},
 			Entry("empty service", &types.VirtualService{}),
 			Entry("missing id", &types.VirtualService{
-				Key: &types.VirtualService_Key{
-					Ip:       "127.0.0.1",
-					Port:     8080,
-					Protocol: types.Protocol_TCP,
-				},
-				Config: &types.VirtualService_Config{
-					Scheduler: "sh",
-				},
+				Key:              validKey,
+				Config:           validConfig,
+				RealServerConfig: validRealServerConfig,
 			}),
 			Entry("missing IP", &types.VirtualService{
 				Id: "service1",
@@ -89,9 +97,8 @@ var _ = Describe("API", func() {
 					Port:     8080,
 					Protocol: types.Protocol_TCP,
 				},
-				Config: &types.VirtualService_Config{
-					Scheduler: "sh",
-				},
+				Config:           validConfig,
+				RealServerConfig: validRealServerConfig,
 			}),
 			Entry("invalid IP", &types.VirtualService{
 				Id: "service1",
@@ -100,9 +107,8 @@ var _ = Describe("API", func() {
 					Port:     8080,
 					Protocol: types.Protocol_TCP,
 				},
-				Config: &types.VirtualService_Config{
-					Scheduler: "sh",
-				},
+				Config:           validConfig,
+				RealServerConfig: validRealServerConfig,
 			}),
 			Entry("invalid port", &types.VirtualService{
 				Id: "service1",
@@ -111,9 +117,8 @@ var _ = Describe("API", func() {
 					Port:     99999,
 					Protocol: types.Protocol_TCP,
 				},
-				Config: &types.VirtualService_Config{
-					Scheduler: "sh",
-				},
+				Config:           validConfig,
+				RealServerConfig: validRealServerConfig,
 			}),
 			Entry("zero port", &types.VirtualService{
 				Id: "service1",
@@ -122,9 +127,8 @@ var _ = Describe("API", func() {
 					Port:     0,
 					Protocol: types.Protocol_TCP,
 				},
-				Config: &types.VirtualService_Config{
-					Scheduler: "sh",
-				},
+				Config:           validConfig,
+				RealServerConfig: validRealServerConfig,
 			}),
 			Entry("missing protocol", &types.VirtualService{
 				Id: "service1",
@@ -132,9 +136,8 @@ var _ = Describe("API", func() {
 					Ip:   "127.0.0.1",
 					Port: 8080,
 				},
-				Config: &types.VirtualService_Config{
-					Scheduler: "sh",
-				},
+				Config:           validConfig,
+				RealServerConfig: validRealServerConfig,
 			}),
 			Entry("invalid protocol", &types.VirtualService{
 				Id: "service1",
@@ -143,51 +146,57 @@ var _ = Describe("API", func() {
 					Port:     8080,
 					Protocol: 999,
 				},
-				Config: &types.VirtualService_Config{
-					Scheduler: "sh",
-				},
+				Config:           validConfig,
+				RealServerConfig: validRealServerConfig,
 			}),
 			Entry("config required", &types.VirtualService{
-				Id: "service1",
-				Key: &types.VirtualService_Key{
-					Ip:       "127.0.0.1",
-					Port:     8080,
-					Protocol: types.Protocol_TCP,
-				},
+				Id:               "service1",
+				Key:              validKey,
+				RealServerConfig: validRealServerConfig,
 			}),
 			Entry("scheduler required", &types.VirtualService{
-				Id: "service1",
-				Key: &types.VirtualService_Key{
-					Ip:       "127.0.0.1",
-					Port:     8080,
-					Protocol: types.Protocol_TCP,
+				Id:               "service1",
+				Key:              validKey,
+				Config:           &types.VirtualService_Config{},
+				RealServerConfig: validRealServerConfig,
+			}),
+			Entry("real server config required", &types.VirtualService{
+				Id:     "service1",
+				Key:    validKey,
+				Config: validConfig,
+			}),
+			Entry("forward port required", &types.VirtualService{
+				Id:     "service1",
+				Key:    validKey,
+				Config: validConfig,
+				RealServerConfig: &types.VirtualService_RealServerConfig{
+					ForwardMethod: types.ForwardMethod_MASQ,
 				},
-				Config: &types.VirtualService_Config{},
+			}),
+			Entry("forward method required", &types.VirtualService{
+				Id:     "service1",
+				Key:    validKey,
+				Config: validConfig,
+				RealServerConfig: &types.VirtualService_RealServerConfig{
+					ForwardPort: 900,
+				},
 			}),
 		)
 
 		It("should return codes.AlreadyExists if already exists", func() {
 			svc1 := &types.VirtualService{
-				Id: "service1",
-				Key: &types.VirtualService_Key{
-					Ip:       "127.0.0.1",
-					Port:     8080,
-					Protocol: types.Protocol_TCP,
-				},
-				Config: &types.VirtualService_Config{
-					Scheduler: "sh",
-				},
+				Id:               "service1",
+				Key:              validKey,
+				Config:           validConfig,
+				RealServerConfig: validRealServerConfig,
 			}
 			svc2 := &types.VirtualService{
-				Id: svc1.Id,
-				Key: &types.VirtualService_Key{
-					Ip:       "127.0.0.2",
-					Port:     9090,
-					Protocol: types.Protocol_TCP,
-				},
+				Id:  svc1.Id,
+				Key: validKey,
 				Config: &types.VirtualService_Config{
 					Scheduler: "wrr",
 				},
+				RealServerConfig: validRealServerConfig,
 			}
 
 			_, err := client.CreateService(ctx, svc1)
@@ -207,15 +216,9 @@ var _ = Describe("API", func() {
 
 		It("should return codes.NotFound if no existing service", func() {
 			svc := &types.VirtualService{
-				Id: "service1",
-				Key: &types.VirtualService_Key{
-					Ip:       "127.0.0.1",
-					Port:     8080,
-					Protocol: types.Protocol_TCP,
-				},
-				Config: &types.VirtualService_Config{
-					Scheduler: "sh",
-				},
+				Id:     "service1",
+				Key:    validKey,
+				Config: validConfig,
 			}
 			_, err := client.UpdateService(ctx, svc)
 			status, ok := status.FromError(err)
@@ -241,6 +244,10 @@ var _ = Describe("API", func() {
 				Config: &types.VirtualService_Config{
 					Scheduler: "sh",
 				},
+				RealServerConfig: &types.VirtualService_RealServerConfig{
+					ForwardPort:   900,
+					ForwardMethod: types.ForwardMethod_MASQ,
+				},
 			}
 		)
 
@@ -262,61 +269,32 @@ var _ = Describe("API", func() {
 			Entry("empty server", &types.RealServer{}),
 			Entry("missing serviceID", &types.RealServer{
 				Key: &types.RealServer_Key{
-					Ip:   "172.16.1.1",
-					Port: 9090,
+					Ip: "172.16.1.1",
 				},
 				Config: &types.RealServer_Config{
-					Weight:  &wrappers.UInt32Value{Value: 2},
-					Forward: types.ForwardMethod_ROUTE,
+					Weight: &wrappers.UInt32Value{Value: 2},
 				},
 			}),
 			Entry("missing key", &types.RealServer{
 				ServiceID: service.Id,
 				Config: &types.RealServer_Config{
-					Weight:  &wrappers.UInt32Value{Value: 2},
-					Forward: types.ForwardMethod_ROUTE,
+					Weight: &wrappers.UInt32Value{Value: 2},
 				},
 			}),
 			Entry("missing ip", &types.RealServer{
 				ServiceID: service.Id,
-				Key: &types.RealServer_Key{
-					Port: 9090,
-				},
+				Key:       &types.RealServer_Key{},
 				Config: &types.RealServer_Config{
-					Weight:  &wrappers.UInt32Value{Value: 2},
-					Forward: types.ForwardMethod_ROUTE,
+					Weight: &wrappers.UInt32Value{Value: 2},
 				},
 			}),
 			Entry("invalid ip", &types.RealServer{
 				ServiceID: service.Id,
 				Key: &types.RealServer_Key{
-					Ip:   "999.999.999.999",
-					Port: 9090,
+					Ip: "999.999.999.999",
 				},
 				Config: &types.RealServer_Config{
-					Weight:  &wrappers.UInt32Value{Value: 2},
-					Forward: types.ForwardMethod_ROUTE,
-				},
-			}),
-			Entry("invalid port", &types.RealServer{
-				ServiceID: service.Id,
-				Key: &types.RealServer_Key{
-					Ip:   "127.0.0.1",
-					Port: 99999,
-				},
-				Config: &types.RealServer_Config{
-					Weight:  &wrappers.UInt32Value{Value: 2},
-					Forward: types.ForwardMethod_ROUTE,
-				},
-			}),
-			Entry("missing port", &types.RealServer{
-				ServiceID: service.Id,
-				Key: &types.RealServer_Key{
-					Ip: "172.16.1.1",
-				},
-				Config: &types.RealServer_Config{
-					Weight:  &wrappers.UInt32Value{Value: 2},
-					Forward: types.ForwardMethod_ROUTE,
+					Weight: &wrappers.UInt32Value{Value: 2},
 				},
 			}),
 			Entry("missing config", &types.RealServer{
@@ -326,25 +304,13 @@ var _ = Describe("API", func() {
 					Port: 9090,
 				},
 			}),
-			Entry("missing forward method", &types.RealServer{
-				ServiceID: service.Id,
-				Key: &types.RealServer_Key{
-					Ip:   "172.16.1.1",
-					Port: 9090,
-				},
-				Config: &types.RealServer_Config{
-					Weight: &wrappers.UInt32Value{Value: 2},
-				},
-			}),
 			Entry("missing weight", &types.RealServer{
 				ServiceID: service.Id,
 				Key: &types.RealServer_Key{
 					Ip:   "172.16.1.1",
 					Port: 9090,
 				},
-				Config: &types.RealServer_Config{
-					Forward: types.ForwardMethod_ROUTE,
-				},
+				Config: &types.RealServer_Config{},
 			}),
 		)
 
@@ -352,20 +318,17 @@ var _ = Describe("API", func() {
 			server1 := &types.RealServer{
 				ServiceID: service.Id,
 				Key: &types.RealServer_Key{
-					Ip:   "172.16.1.1",
-					Port: 9090,
+					Ip: "172.16.1.1",
 				},
 				Config: &types.RealServer_Config{
-					Weight:  &wrappers.UInt32Value{Value: 2},
-					Forward: types.ForwardMethod_ROUTE,
+					Weight: &wrappers.UInt32Value{Value: 2},
 				},
 			}
 			server2 := &types.RealServer{
 				ServiceID: service.Id,
 				Key:       server1.Key,
 				Config: &types.RealServer_Config{
-					Weight:  &wrappers.UInt32Value{Value: 1},
-					Forward: types.ForwardMethod_TUNNEL,
+					Weight: &wrappers.UInt32Value{Value: 1},
 				},
 			}
 			_, err := client.CreateServer(ctx, server1)
@@ -384,12 +347,10 @@ var _ = Describe("API", func() {
 			server := &types.RealServer{
 				ServiceID: "service-does-not-exist",
 				Key: &types.RealServer_Key{
-					Ip:   "172.16.1.1",
-					Port: 9090,
+					Ip: "172.16.1.1",
 				},
 				Config: &types.RealServer_Config{
-					Weight:  &wrappers.UInt32Value{Value: 2},
-					Forward: types.ForwardMethod_ROUTE,
+					Weight: &wrappers.UInt32Value{Value: 2},
 				},
 			}
 			_, err := client.CreateServer(ctx, server)
@@ -411,12 +372,10 @@ var _ = Describe("API", func() {
 			server := &types.RealServer{
 				ServiceID: "service1",
 				Key: &types.RealServer_Key{
-					Ip:   "172.16.1.1",
-					Port: 9090,
+					Ip: "172.16.1.1",
 				},
 				Config: &types.RealServer_Config{
-					Weight:  &wrappers.UInt32Value{Value: 2},
-					Forward: types.ForwardMethod_ROUTE,
+					Weight: &wrappers.UInt32Value{Value: 2},
 				},
 			}
 			_, err := client.UpdateServer(ctx, server)

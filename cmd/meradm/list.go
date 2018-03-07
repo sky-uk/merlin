@@ -35,8 +35,9 @@ func list(_ *cobra.Command, _ []string) error {
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', 0)
 
 		fmt.Fprintln(w, "ID\tProt\tLocalAddress:Port\tScheduler\tFlags\t\t")
-		fmt.Fprintln(w, "\t    \tHealth\tPeriod\tTimeout\tUp/Down\t")
-		fmt.Fprintln(w, "\t  ->\tRemoteAddress:Port\tForward\tWeight\t\t")
+		fmt.Fprintln(w, "\tFwdPort\tFwdMethod\t\t\t\t")
+		fmt.Fprintln(w, "\tHealth\tPeriod\tTimeout\tUp/Down\t\t")
+		fmt.Fprintln(w, "\t  ->\tRemoteAddress\tWeight\t\t\t")
 
 		for _, item := range resp.Items {
 			svc := item.Service
@@ -49,10 +50,14 @@ func list(_ *cobra.Command, _ []string) error {
 				svc.Config.Scheduler,
 				strings.Join(svc.Config.Flags, ","))
 
+			fmt.Fprintf(w, "\t:%d\t%s\t\t\t\t\n",
+				svc.RealServerConfig.ForwardPort,
+				svc.RealServerConfig.ForwardMethod)
+
 			if svc.HealthCheck.Endpoint.GetValue() != "" {
 				period, _ := ptypes.Duration(svc.HealthCheck.Period)
 				timeout, _ := ptypes.Duration(svc.HealthCheck.Timeout)
-				fmt.Fprintf(w, "\t    \t%s\t%v\t%v\t%d/%d\t\n",
+				fmt.Fprintf(w, "\t%s\t%v\t%v\t%d/%d\t\t\n",
 					svc.HealthCheck.Endpoint,
 					period,
 					timeout,
@@ -61,10 +66,8 @@ func list(_ *cobra.Command, _ []string) error {
 			}
 
 			for _, server := range item.Servers {
-				fmt.Fprintf(w, "\t  ->\t%s:%d\t%s\t%d\t\t\n",
+				fmt.Fprintf(w, "\t  ->\t%s\t%d\t\t\t\n",
 					server.Key.GetIp(),
-					server.Key.GetPort(),
-					server.Config.GetForward(),
 					server.Config.GetWeight().GetValue())
 			}
 		}

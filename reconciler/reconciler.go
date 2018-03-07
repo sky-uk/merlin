@@ -170,7 +170,7 @@ func (r *reconciler) reconcile() {
 		for _, desiredServer := range desiredServers {
 			var found bool
 			for _, actualServer := range actualServers {
-				if proto.Equal(desiredServer.Key, actualServer.Key) {
+				if desiredServer.Key.Ip == actualServer.Key.Ip {
 					found = true
 					break
 				}
@@ -190,7 +190,12 @@ func (r *reconciler) reconcile() {
 			}
 		}
 
+		// create or update servers for the service
 		for _, desiredServer := range desiredServers {
+			// server forward port and method are defined on the virtual service
+			desiredServer.Key.Port = desiredService.RealServerConfig.ForwardPort
+			desiredServer.Config.Forward = desiredService.RealServerConfig.ForwardMethod
+
 			var match *types.RealServer
 			for _, actualServer := range actualServers {
 				if proto.Equal(desiredServer.Key, actualServer.Key) {
@@ -211,6 +216,7 @@ func (r *reconciler) reconcile() {
 			}
 		}
 
+		// remove non-desired servers from IPVS
 		for _, actualServer := range actualServers {
 			var found bool
 			for _, desiredServer := range desiredServers {
@@ -221,12 +227,26 @@ func (r *reconciler) reconcile() {
 			}
 			if !found {
 				log.Infof("Deleting real server: %v", actualServer)
-				// remove health check
-				r.checker.RemServer(desiredService.Id, actualServer.Key.Ip)
 				// remove from ipvs
 				if err := r.ipvs.DeleteServer(desiredService.Key, actualServer); err != nil {
 					log.Errorf("Unable to delete server: %v", err)
 				}
+			}
+		}
+
+		// remove non-desired servers from health check
+		for _, actualServer := range actualServers {
+			var found bool
+			for _, desiredServer := range desiredServers {
+				if actualServer.Key.Ip == desiredServer.Key.Ip {
+					found = true
+					break
+				}
+			}
+			if !found {
+				log.Infof("Deleting health check for %s", actualServer.Key.Ip)
+				// remove health check
+				r.checker.RemServer(desiredService.Id, actualServer.Key.Ip)
 			}
 		}
 	}
