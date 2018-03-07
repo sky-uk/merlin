@@ -74,7 +74,7 @@ var _ = Describe("HealthChecks", func() {
 			Endpoint:      &wrappers.StringValue{Value: fmt.Sprintf("http://:%s%s", u.Port(), checkPath)},
 			Period:        ptypes.DurationProto(period),
 			Timeout:       ptypes.DurationProto(timeout),
-			UpThreshold:   3,
+			UpThreshold:   4,
 			DownThreshold: 2,
 		}
 		waitForUp = time.Duration(check.UpThreshold) * (timeout + period)
