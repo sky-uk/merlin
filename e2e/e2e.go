@@ -14,10 +14,13 @@ import (
 
 	"strconv"
 
+	"bytes"
 	"crypto/sha256"
 	"io"
 	"net"
 	"net/http"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -40,6 +43,8 @@ var (
 	dataDir          string
 	etcd             *exec.Cmd
 	merlin           *exec.Cmd
+	merlinStdout     safeBuffer
+	merlinStderr     safeBuffer
 )
 
 func SetupE2E() {
@@ -117,6 +122,10 @@ func downloadEtcdBinary() {
 	}
 }
 
+func EtcdPort() string {
+	return etcdListenPort
+}
+
 func StartEtcd() {
 	var err error
 	dataDir, err = ioutil.TempDir(buildDir, "")
@@ -155,6 +164,18 @@ func MerlinPort() string {
 	return merlinPort
 }
 
+// MerlinStdout is the stdout of the merlin process. Subsequent calls only return new output.
+func MerlinStdout() []string {
+	s, _ := ioutil.ReadAll(&merlinStdout)
+	return strings.Split(string(s), "\n")
+}
+
+// MerlinStderr is the stderr of the merlin process. Subsequent calls only return new output.
+func MerlinStderr() []string {
+	s, _ := ioutil.ReadAll(&merlinStderr)
+	return strings.Split(string(s), "\n")
+}
+
 func StartMerlin() {
 	ports := findFreePorts(2)
 	merlinPort = strconv.Itoa(ports[0])
@@ -164,9 +185,23 @@ func StartMerlin() {
 		"-port="+merlinPort,
 		"-health-port="+merlinHealthPort,
 		"-store-endpoints=http://127.0.0.1:"+etcdListenPort,
-		"-reconcile=false")
-	merlin.Stdout = os.Stdout
-	merlin.Stderr = os.Stderr
+		"-reconcile=false",
+		"-debug")
+
+	// wire up pipes so we can save and assert on output, while preserving stderr/stdout
+	prOut, pwOut := io.Pipe()
+	prErr, pwErr := io.Pipe()
+	teeOut := io.TeeReader(prOut, os.Stdout)
+	teeErr := io.TeeReader(prErr, os.Stderr)
+	go func() {
+		io.Copy(&merlinStdout, teeOut)
+	}()
+	go func() {
+		io.Copy(&merlinStderr, teeErr)
+	}()
+
+	merlin.Stdout = pwOut
+	merlin.Stderr = pwErr
 	if err := merlin.Start(); err != nil {
 		panic(err.Error())
 	}
@@ -224,4 +259,21 @@ func findFreePorts(num int) []int {
 		ports = append(ports, port)
 	}
 	return ports
+}
+
+type safeBuffer struct {
+	buf bytes.Buffer
+	sync.Mutex
+}
+
+func (s *safeBuffer) Read(p []byte) (n int, err error) {
+	s.Lock()
+	defer s.Unlock()
+	return s.buf.Read(p)
+}
+
+func (s *safeBuffer) Write(p []byte) (n int, err error) {
+	s.Lock()
+	defer s.Unlock()
+	return s.buf.Write(p)
 }

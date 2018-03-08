@@ -49,7 +49,7 @@ func init() {
 	flag.IntVar(&healthPort, "health-port", 4283, "/health, /alive, /metrics, and /debug endpoints")
 	flag.StringVar(&storeEndpoints, "store-endpoints", "", "comma delimited list of etcd2 endpoints")
 	flag.StringVar(&storePrefix, "store-prefix", "/merlin", "prefix to store state")
-	flag.DurationVar(&reconcileSyncPeriod, "reconcile-sync-period", 30*time.Second, "how often to reconcile ipvs state")
+	flag.DurationVar(&reconcileSyncPeriod, "reconcile-sync-period", time.Minute, "how often to periodically sync ipvs state")
 	flag.BoolVar(&reconcile, "reconcile", true, "if enabled, merlin will reconcile local ipvs with store state")
 }
 
@@ -58,7 +58,7 @@ func main() {
 
 	if debug {
 		log.SetLevel(log.DebugLevel)
-		log.Debug("debug logs on")
+		log.Debug("Debug logs on")
 	}
 	filenameHook := filename.NewHook()
 	filenameHook.Field = "source"
@@ -72,8 +72,9 @@ func main() {
 }
 
 type srv struct {
-	grpcServer *grpc.Server
-	reconciler reconciler.Reconciler
+	grpcServer      *grpc.Server
+	reconciler      reconciler.Reconciler
+	subscribeStopCh chan struct{}
 }
 
 func (s *srv) Health() error {
@@ -108,7 +109,14 @@ func (s *srv) Start() {
 		log.Fatalf("Unable to start reconciler: %v", err)
 	}
 	s.reconciler.Sync()
-	server := server.New(etcdStore, s.reconciler)
+
+	s.subscribeStopCh = make(chan struct{})
+	etcdStore.Subscribe(func() {
+		log.Info("Store updated, starting sync")
+		s.reconciler.Sync()
+	}, s.subscribeStopCh)
+
+	server := server.New(etcdStore)
 
 	s.grpcServer = grpc.NewServer(
 		grpc.UnaryInterceptor(logRequests),
@@ -122,6 +130,7 @@ func (s *srv) Start() {
 }
 
 func (s *srv) Stop() error {
+	close(s.subscribeStopCh)
 	s.reconciler.Stop()
 	s.grpcServer.GracefulStop()
 	log.Infof("Stopped merlin")

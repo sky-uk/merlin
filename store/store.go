@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/cenkalti/backoff"
 	"github.com/coreos/etcd/client"
 	"github.com/golang/protobuf/proto"
 	log "github.com/sirupsen/logrus"
@@ -33,6 +34,8 @@ type Store interface {
 	DeleteServer(ctx context.Context, serviceID string, key *types.RealServer_Key) error
 	ListServices(context.Context) ([]*types.VirtualService, error)
 	ListServers(ctx context.Context, serviceID string) ([]*types.RealServer, error)
+	// Subscribe to changes. subscriber is called whenever a change occurs in the store.
+	Subscribe(subscriber func(), stopCh <-chan struct{})
 }
 
 type store struct {
@@ -48,7 +51,7 @@ func NewEtcd2(endpoints []string, prefix string) (Store, error) {
 		Transport:               client.DefaultTransport,
 		HeaderTimeoutPerRequest: time.Second,
 	}
-	log.Debug("creating etcd2 client")
+	log.Debug("Creating etcd2 client")
 	c, err := client.New(cfg)
 	if err != nil {
 		return nil, err
@@ -193,7 +196,8 @@ func (s *store) PutServer(ctx context.Context, server *types.RealServer) error {
 }
 
 func (s *store) DeleteServer(ctx context.Context, serviceID string, key *types.RealServer_Key) error {
-	_, err := s.kapi.Delete(ctx, s.serverKey(serviceID, key), nil)
+	serverKey := s.serverKey(serviceID, key)
+	_, err := s.kapi.Delete(ctx, serverKey, nil)
 	return err
 }
 
@@ -226,4 +230,56 @@ func (s *store) ListServers(ctx context.Context, serviceID string) ([]*types.Rea
 		servers = append(servers, server)
 	}
 	return servers, nil
+}
+
+func (s *store) Subscribe(subscriber func(), stopCh <-chan struct{}) {
+	options := &client.WatcherOptions{
+		Recursive: true,
+	}
+	watcher := s.kapi.Watcher(s.prefix, options)
+	respCh := make(chan *client.Response)
+
+	go func() {
+		ctx, cancelFunc := context.WithCancel(context.Background())
+		defer cancelFunc()
+		handleWatcherUpdates(ctx, watcher, respCh)
+
+		for {
+			select {
+			case <-respCh:
+				subscriber()
+			case <-stopCh:
+				return
+			}
+		}
+	}()
+}
+
+func handleWatcherUpdates(ctx context.Context, watcher client.Watcher, respCh chan<- *client.Response) {
+	handler := func() error {
+		resp, err := watcher.Next(ctx)
+		if err == nil {
+			respCh <- resp
+		} else {
+			if ctx.Err() != nil {
+				// context was cancelled, exit handler
+				return &backoff.PermanentError{Err: err}
+			}
+			log.Warnf("etcd watcher: %v", err)
+		}
+		return err
+	}
+
+	expBackoff := backoff.NewExponentialBackOff()
+	// never stop retrying
+	expBackoff.MaxElapsedTime = 0
+
+	go func() {
+		for {
+			err := backoff.Retry(handler, expBackoff)
+			if err != nil {
+				break
+			}
+		}
+	}()
 }
