@@ -9,10 +9,12 @@ import (
 
 	"math"
 
-	log "github.com/Sirupsen/logrus"
+	"net/url"
+
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/golang/protobuf/ptypes/wrappers"
+	log "github.com/sirupsen/logrus"
 	"github.com/sky-uk/merlin/reconciler"
 	"github.com/sky-uk/merlin/store"
 	"github.com/sky-uk/merlin/types"
@@ -68,10 +70,44 @@ func validateService(service *types.VirtualService) error {
 	if service.Config.Scheduler == "" {
 		return status.Error(codes.InvalidArgument, "service scheduler required")
 	}
+	if service.HealthCheck.Endpoint.GetValue() != "" {
+		u, err := url.Parse(service.HealthCheck.Endpoint.Value)
+		if err != nil {
+			return status.Errorf(codes.InvalidArgument, "health check endpoint %q must be a valid url: %v",
+				service.HealthCheck.Endpoint, err)
+		}
+		switch u.Scheme {
+		case "http":
+			// valid
+		default:
+			return status.Errorf(codes.InvalidArgument, "health check endpoint scheme %q not recognized",
+				u.Scheme)
+		}
+		if u.Port() == "" {
+			return status.Errorf(codes.InvalidArgument, "health check endpoint is missing port")
+		}
+		if service.HealthCheck.Period.Seconds == 0 && service.HealthCheck.Period.Nanos == 0 {
+			return status.Errorf(codes.InvalidArgument, "health check period is required")
+		}
+		if service.HealthCheck.Timeout.Seconds == 0 && service.HealthCheck.Timeout.Nanos == 0 {
+			return status.Errorf(codes.InvalidArgument, "health check timeout is required")
+		}
+		if service.HealthCheck.DownThreshold == 0 {
+			return status.Errorf(codes.InvalidArgument, "health check down threshold is required and must be > 0")
+		}
+		if service.HealthCheck.UpThreshold == 0 {
+			return status.Errorf(codes.InvalidArgument, "health check up threshold is required and must be > 0")
+		}
+	}
 	return nil
 }
 
 func (s *server) CreateService(ctx context.Context, service *types.VirtualService) (*empty.Empty, error) {
+	// ensure health check field always exists
+	if service.HealthCheck == nil {
+		service.HealthCheck = &types.VirtualService_HealthCheck{}
+	}
+
 	if err := validateService(service); err != nil {
 		return emptyResponse, err
 	}
@@ -109,10 +145,19 @@ func (s *server) UpdateService(ctx context.Context, update *types.VirtualService
 		next.Config.Flags = nil
 	}
 	proto.Merge(next.Config, update.Config)
+	proto.Merge(next.HealthCheck, update.HealthCheck)
+	// force update of endpoint if set
+	if update.HealthCheck.Endpoint != nil {
+		next.HealthCheck.Endpoint = update.HealthCheck.Endpoint
+	}
 
 	if proto.Equal(prev, next) {
 		log.Infof("No update of %s", update.Id)
 		return emptyResponse, nil
+	}
+
+	if err := validateService(next); err != nil {
+		return emptyResponse, err
 	}
 
 	if err := s.store.PutService(ctx, next); err != nil {
@@ -213,6 +258,10 @@ func (s *server) UpdateServer(ctx context.Context, update *types.RealServer) (*e
 	if proto.Equal(prev, next) {
 		log.Infof("No update of %s/%s", update.ServiceID, update.Key)
 		return emptyResponse, nil
+	}
+
+	if err := validateServer(next); err != nil {
+		return emptyResponse, err
 	}
 
 	if err := s.store.PutServer(ctx, next); err != nil {

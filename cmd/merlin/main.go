@@ -19,9 +19,10 @@ import (
 
 	"context"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/mqliang/libipvs"
+	"github.com/onrik/logrus/filename"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	log "github.com/sirupsen/logrus"
 	"github.com/sky-uk/merlin/ipvs"
 	"github.com/sky-uk/merlin/reconciler"
 	"github.com/sky-uk/merlin/server"
@@ -59,9 +60,12 @@ func main() {
 		log.SetLevel(log.DebugLevel)
 		log.Debug("debug logs on")
 	}
+	filenameHook := filename.NewHook()
+	filenameHook.Field = "source"
+	log.AddHook(filenameHook)
 
 	srv := &srv{}
-	go srv.Start()
+	srv.Start()
 	addSignalHandler(srv)
 	addHealthPort(srv)
 	select {}
@@ -100,14 +104,21 @@ func (s *srv) Start() {
 		s.reconciler = reconciler.NewStub()
 	}
 
-	s.reconciler.Start()
+	if err := s.reconciler.Start(); err != nil {
+		log.Fatalf("Unable to start reconciler: %v", err)
+	}
+	s.reconciler.Sync()
 	server := server.New(etcdStore, s.reconciler)
 
 	s.grpcServer = grpc.NewServer(
 		grpc.UnaryInterceptor(logRequests),
 	)
 	types.RegisterMerlinServer(s.grpcServer, server)
-	log.Fatal(s.grpcServer.Serve(lis))
+	go func() {
+		if err := s.grpcServer.Serve(lis); err != nil {
+			log.Error(err)
+		}
+	}()
 }
 
 func (s *srv) Stop() error {
@@ -150,7 +161,9 @@ func addHealthPort(s *srv) {
 	http.HandleFunc("/alive", okHandler)
 
 	go func() {
-		log.Fatal(http.ListenAndServe(":"+strconv.Itoa(healthPort), nil))
+		if err := http.ListenAndServe(":"+strconv.Itoa(healthPort), nil); err != nil {
+			log.Error(err)
+		}
 	}()
 }
 

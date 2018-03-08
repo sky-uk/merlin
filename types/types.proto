@@ -4,6 +4,7 @@ package types;
 
 import "google/protobuf/empty.proto";
 import "google/protobuf/wrappers.proto";
+import "google/protobuf/duration.proto";
 
 service Merlin {
     rpc CreateService (VirtualService) returns (google.protobuf.Empty) {}
@@ -33,12 +34,24 @@ message VirtualService {
         repeated string flags = 2;
     }
 
+    message HealthCheck {
+        // Endpoint should be a valid url, expected format is <scheme>://:<port>/<path>, e.g. http://:80/health.
+        // Set to an empty string to disable health check.
+        google.protobuf.StringValue endpoint = 1;
+        google.protobuf.Duration period = 2;
+        google.protobuf.Duration timeout = 3;
+        uint32 up_threshold = 4;
+        uint32 down_threshold = 5;
+    }
+
     // ID is a unique identifier of this virtual service to associate it with real servers.
     string id = 1;
     // Key is the identifying part in IPVS.
     Key key = 2;
     // Config is the configurable part in IPVS.
     Config config = 3;
+    // HealthCheck is the check done by merlin against the associated real servers.
+    HealthCheck health_check = 4;
 }
 
 // ForwardMethod to forward packets to real servers.
@@ -60,22 +73,12 @@ message RealServer {
         ForwardMethod forward = 2;
     }
 
-    message Healthcheck {
-        string target = 1;
-        uint32 timeout = 2;
-        uint32 interval = 3;
-        uint32 healthy_threshold = 4;
-        uint32 unhealthy_threshold = 5;
-    }
-
     // ServiceID is the id of the virtual service to associate this real server with.
     string serviceID = 1;
     // Key is the identifying part in IPVS.
     Key key = 2;
     // Config is the configurable part in IPVS.
     Config config = 3;
-    // Healthcheck is the check done by merlin against this real server.
-    Healthcheck healthcheck = 4;
 }
 
 message ListResponse {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"text/tabwriter"
 
+	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/sky-uk/merlin/types"
 	"github.com/spf13/cobra"
@@ -33,20 +34,34 @@ func list(_ *cobra.Command, _ []string) error {
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', 0)
 
-		fmt.Fprintln(w, "ID\tProt\tLocalAddress:Port\tScheduler\tFlags")
-		fmt.Fprintln(w, "\t  ->\tRemoteAddress:Port\tForward\tWeight")
+		fmt.Fprintln(w, "ID\tProt\tLocalAddress:Port\tScheduler\tFlags\t\t")
+		fmt.Fprintln(w, "\t    \tHealth\tPeriod\tTimeout\tUp/Down\t")
+		fmt.Fprintln(w, "\t  ->\tRemoteAddress:Port\tForward\tWeight\t\t")
 
 		for _, item := range resp.Items {
-			fmt.Fprintf(w, "%s\t%s\t%s:%d\t%s\t(%s)\n",
-				item.Service.Id,
-				item.Service.Key.Protocol.String(),
-				item.Service.Key.Ip,
-				item.Service.Key.Port,
-				item.Service.Config.Scheduler,
-				strings.Join(item.Service.Config.Flags, ","))
+			svc := item.Service
+
+			fmt.Fprintf(w, "%s\t%s\t%s:%d\t%s\t(%s)\t\t\n",
+				svc.Id,
+				svc.Key.Protocol.String(),
+				svc.Key.Ip,
+				svc.Key.Port,
+				svc.Config.Scheduler,
+				strings.Join(svc.Config.Flags, ","))
+
+			if svc.HealthCheck.Endpoint.GetValue() != "" {
+				period, _ := ptypes.Duration(svc.HealthCheck.Period)
+				timeout, _ := ptypes.Duration(svc.HealthCheck.Timeout)
+				fmt.Fprintf(w, "\t    \t%s\t%v\t%v\t%d/%d\t\n",
+					svc.HealthCheck.Endpoint,
+					period,
+					timeout,
+					svc.HealthCheck.UpThreshold,
+					svc.HealthCheck.DownThreshold)
+			}
 
 			for _, server := range item.Servers {
-				fmt.Fprintf(w, "\t  ->\t%s:%d\t%s\t%d\n",
+				fmt.Fprintf(w, "\t  ->\t%s:%d\t%s\t%d\t\t\n",
 					server.Key.GetIp(),
 					server.Key.GetPort(),
 					server.Config.GetForward(),

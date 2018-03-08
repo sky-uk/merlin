@@ -26,7 +26,7 @@
 
 
 [[constraint]]
-  name = "github.com/Sirupsen/logrus"
+  name = "github.com/sirupsen/logrus"
   version = "1.0.4"
 
 [[constraint]]
@@ -64,3 +64,7 @@
 [[constraint]]
   name = "github.com/onsi/ginkgo"
   version = "1.4.0"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/onrik/logrus"

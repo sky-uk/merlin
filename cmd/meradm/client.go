@@ -5,7 +5,7 @@ import (
 
 	"fmt"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"github.com/sky-uk/merlin/types"
 	"google.golang.org/grpc"
 )

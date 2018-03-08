@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"strings"
 
+	"time"
+
+	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/wrappers"
 	"github.com/sky-uk/merlin/types"
 	"github.com/spf13/cobra"
@@ -52,8 +55,13 @@ var deleteServiceCmd = &cobra.Command{
 }
 
 var (
-	scheduler  string
-	schedFlags []string
+	scheduler           string
+	schedFlags          []string
+	healthEndpoint      string
+	healthPeriod        time.Duration
+	healthTimeout       time.Duration
+	healthUpThreshold   uint16
+	healthDownThreshold uint16
 )
 
 func init() {
@@ -65,24 +73,51 @@ func init() {
 	for _, f := range []*pflag.FlagSet{addServiceCmd.Flags(), editServiceCmd.Flags()} {
 		f.StringVarP(&scheduler, "scheduler", "s", "", "scheduler for new connections")
 		f.StringSliceVarP(&schedFlags, "sched-flags", "b", nil, "scheduler flags")
+		f.StringVar(&healthEndpoint, "health-endpoint", "", "Endpoint for health checks. "+
+			"If set to empty string, no health check occurs and the server is assumed to always be up.")
+		f.DurationVar(&healthPeriod, "health-period", 0, "Time period between health checks.")
+		f.DurationVar(&healthTimeout, "health-timeout", 0, "Timeout for health checks.")
+		f.Uint16Var(&healthUpThreshold, "health-up", 0,
+			"Threshold of successful health checks before marking a server as up.")
+		f.Uint16Var(&healthDownThreshold, "health-down", 0,
+			"Threshold of failed health checks before marking a server as down.")
 	}
 
 	addServiceCmd.MarkFlagRequired("scheduler")
 }
 
-func serviceFromFlags(id string) *types.VirtualService {
-	return &types.VirtualService{
+func serviceFromFlags(cmd *cobra.Command, id string) *types.VirtualService {
+	svc := &types.VirtualService{
 		Id: id,
 		Config: &types.VirtualService_Config{
 			Scheduler: scheduler,
 			Flags:     schedFlags,
 		},
+		HealthCheck: &types.VirtualService_HealthCheck{},
 	}
+
+	if cmd.Flag("health-endpoint").Changed {
+		svc.HealthCheck.Endpoint = &wrappers.StringValue{Value: healthEndpoint}
+	}
+	if healthPeriod != 0 {
+		svc.HealthCheck.Period = ptypes.DurationProto(healthPeriod)
+	}
+	if healthTimeout != 0 {
+		svc.HealthCheck.Timeout = ptypes.DurationProto(healthTimeout)
+	}
+	if healthUpThreshold != 0 {
+		svc.HealthCheck.UpThreshold = uint32(healthUpThreshold)
+	}
+	if healthDownThreshold != 0 {
+		svc.HealthCheck.DownThreshold = uint32(healthDownThreshold)
+	}
+
+	return svc
 }
 
-func addService(_ *cobra.Command, args []string) error {
+func addService(cmd *cobra.Command, args []string) error {
 	return client(func(c types.MerlinClient) error {
-		svc := serviceFromFlags(args[0])
+		svc := serviceFromFlags(cmd, args[0])
 
 		proto, ok := types.Protocol_value[strings.ToUpper(args[1])]
 		if !ok {
@@ -108,9 +143,9 @@ func addService(_ *cobra.Command, args []string) error {
 	})
 }
 
-func editService(_ *cobra.Command, args []string) error {
+func editService(cmd *cobra.Command, args []string) error {
 	return client(func(c types.MerlinClient) error {
-		svc := serviceFromFlags(args[0])
+		svc := serviceFromFlags(cmd, args[0])
 		ctx, cancel := clientContext()
 		defer cancel()
 		_, err := c.UpdateService(ctx, svc)
