@@ -37,43 +37,58 @@ var _ = Describe("Meradm", func() {
 	Describe("services", func() {
 		Context("add service", func() {
 			It("succeeds", func() {
-				meradm("service", "add", "service1", "tcp", "10.1.1.1:888", "-s=wrr", "-b=flag-1,flag-2")
+				meradm("service", "add", "service1", "tcp", "10.1.1.1:888", "-s=wrr", "-b=flag-1,flag-2",
+					"-f=masq", "-p=900")
 
 				out := meradmList()
 
-				Expect(out).To(ContainElement(MatchRegexp(`.*service1.*TCP.*10.1.1.1:888.*wrr.*flag-1,flag-2.*`)))
+				Expect(out).To(ContainElement(MatchRegexp(`service1.*TCP.*10.1.1.1:888.*wrr.*flag-1,flag-2`)))
+				Expect(out).To(ContainElement(MatchRegexp(`:900.*MASQ`)))
 			})
 
 			It("succeeds without scheduler flags", func() {
-				meradm("service", "add", "service1", "tcp", "10.1.1.1:888", "-s=wrr")
+				meradm("service", "add", "service1", "tcp", "10.1.1.1:888", "-s=wrr", "-f=masq", "-p=900")
 
 				out := meradmList()
 
-				Expect(out).To(ContainElement(MatchRegexp(`.*service1.*TCP.*10.1.1.1:888.*wrr.*`)))
+				Expect(out).To(ContainElement(MatchRegexp(`service1.*TCP.*10.1.1.1:888.*wrr`)))
 			})
 
 			It("fails if scheduler is not specified", func() {
-				_, err := meradmErrored("service", "add", "service1", "tcp", "10.1.1.1:888")
+				_, err := meradmErrored("service", "add", "service1", "tcp", "10.1.1.1:888", "-f=masq", "-p=900")
+				Expect(err).To(HaveOccurred())
+			})
+
+			It("fails if forward port is not specified", func() {
+				_, err := meradmErrored("service", "add", "service1", "tcp", "10.1.1.1:888", "-s=wrr", "-f=masq")
+				Expect(err).To(HaveOccurred())
+			})
+
+			It("fails if forward method is not specified", func() {
+				_, err := meradmErrored("service", "add", "service1", "tcp", "10.1.1.1:888", "-s=wrr", "-p=900")
 				Expect(err).To(HaveOccurred())
 			})
 		})
 
 		It("can edit an existing service", func() {
-			meradm("service", "add", "service1", "tcp", "10.1.1.1:888", "-s=wrr", "-b=flag-1,flag-2")
-			meradm("service", "edit", "service1", "-s=sh", "-b=flag-3")
+			meradm("service", "add", "service1", "tcp", "10.1.1.1:888", "-s=wrr", "-b=flag-1,flag-2",
+				"-f=masq", "-p=900")
+			meradm("service", "edit", "service1", "-s=sh", "-b=flag-3", "-f=route", "-p=800")
 
 			out := meradmList()
 
-			Expect(out).To(ContainElement(MatchRegexp(`.*service1.*TCP.*10.1.1.1:888.*sh.*flag-3.*`)))
+			Expect(out).To(ContainElement(MatchRegexp(`service1.*TCP.*10.1.1.1:888.*sh.*flag-3`)))
+			Expect(out).To(ContainElement(MatchRegexp(`:800.*ROUTE`)))
 		})
 
 		It("can delete an existing service", func() {
-			meradm("service", "add", "service1", "tcp", "10.1.1.1:888", "-s=wrr", "-b=flag-1,flag-2")
+			meradm("service", "add", "service1", "tcp", "10.1.1.1:888", "-s=wrr", "-b=flag-1,flag-2",
+				"-f=masq", "-p=900")
 			meradm("service", "del", "service1")
 
 			out := meradmList()
 
-			Expect(out).NotTo(ContainElement(MatchRegexp(`.*service1.*`)))
+			Expect(out).NotTo(ContainElement(MatchRegexp(`service1`)))
 		})
 
 		It("fails if required fields are unset", func() {
@@ -85,6 +100,7 @@ var _ = Describe("Meradm", func() {
 
 		It("can set a healthcheck", func() {
 			meradm("service", "add", "service1", "tcp", "10.1.1.1:888", "-s=wrr", "-b=flag-1,flag-2",
+				"-f=masq", "-p=900",
 				"--health-endpoint=http://:556/health", "--health-period=5s", "--health-timeout=1s",
 				"--health-up=2", "--health-down=1")
 			// make sure we can edit individual parts of the health check
@@ -97,6 +113,7 @@ var _ = Describe("Meradm", func() {
 
 		It("can remove a healthcheck", func() {
 			meradm("service", "add", "service1", "tcp", "10.1.1.1:888", "-s=wrr", "-b=flag-1,flag-2",
+				"-f=masq", "-p=900",
 				"--health-endpoint=http://:556/health", "--health-period=5s", "--health-timeout=1s",
 				"--health-up=2", "--health-down=1")
 			meradm("service", "edit", "service1", "--health-endpoint=")
@@ -109,50 +126,38 @@ var _ = Describe("Meradm", func() {
 
 	Describe("servers", func() {
 		BeforeEach(func() {
-			meradm("service", "add", "service1", "tcp", "10.1.1.1:888", "-s=wrr", "-b=flag-1,flag-2")
+			meradm("service", "add", "service1", "tcp", "10.1.1.1:888", "-s=wrr", "-b=flag-1,flag-2",
+				"-f=masq", "-p=900")
 		})
 
 		It("can add a new server", func() {
-			meradm("server", "add", "service1", "172.16.1.1:555", "-w=2", "-f=masq")
+			meradm("server", "add", "service1", "172.16.1.1", "-w=2")
 
 			out := meradmList()
 
-			Expect(out).To(ContainElement(MatchRegexp(`.*172.16.1.1:555.*MASQ.*2.*`)))
+			Expect(out).To(ContainElement(MatchRegexp(`172.16.1.1.*2`)))
 		})
 
 		It("can edit a server", func() {
-			meradm("server", "add", "service1", "172.16.1.1:555", "-w=2", "-f=masq")
-			meradm("server", "edit", "service1", "172.16.1.1:555", "-w=5")
-			meradm("server", "edit", "service1", "172.16.1.1:555", "-f=route")
+			meradm("server", "add", "service1", "172.16.1.1", "-w=2")
+			meradm("server", "edit", "service1", "172.16.1.1", "-w=5")
 
 			out := meradmList()
 
-			Expect(out).To(ContainElement(MatchRegexp(`.*172.16.1.1:555.*ROUTE.*5.*`)))
-			Expect(out).ToNot(ContainElement(MatchRegexp(`.*MASQ.*`)))
-			Expect(out).ToNot(ContainElement(MatchRegexp(`.* 2 .*`)))
+			Expect(out).To(ContainElement(MatchRegexp(`172.16.1.1.*5`)))
 		})
 
 		It("can delete a server", func() {
-			meradm("server", "add", "service1", "172.16.1.1:555", "-w=2", "-f=masq")
-			meradm("server", "del", "service1", "172.16.1.1:555")
+			meradm("server", "add", "service1", "172.16.1.1", "-w=2")
+			meradm("server", "del", "service1", "172.16.1.1")
 
 			out := meradmList()
 
-			Expect(out).ToNot(ContainElement(MatchRegexp(`.*172.16.1.1.*`)))
+			Expect(out).ToNot(ContainElement(ContainSubstring("172.16.1.1")))
 		})
 
-		It("can optionally set flags", func() {
-			meradm("server", "add", "service1", "172.16.1.1:555", "-f=masq", "-w=1")
-			meradm("server", "edit", "service1", "172.16.1.1:555", "-f=route")
-			meradm("server", "edit", "service1", "172.16.1.1:555", "-w=4")
-
-			out := meradmList()
-
-			Expect(out).To(ContainElement(MatchRegexp(`.*172.16.1.1:555.*ROUTE.*4.*`)))
-		})
-
-		It("requires flags are set when adding a service", func() {
-			_, err := meradmErrored("server", "add", "service1", "172.16.1.1:555")
+		It("requires weight is set when adding", func() {
+			_, err := meradmErrored("server", "add", "service1", "172.16.1.1")
 			Expect(err).To(HaveOccurred())
 		})
 	})

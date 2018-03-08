@@ -7,8 +7,6 @@ import (
 
 	"fmt"
 
-	"strings"
-
 	"github.com/golang/protobuf/ptypes/wrappers"
 	"github.com/sky-uk/merlin/types"
 	"github.com/spf13/cobra"
@@ -20,41 +18,40 @@ var serverCmd = &cobra.Command{
 	Short: "Modify a real server",
 }
 
-func validServiceIDIPPort(_ *cobra.Command, args []string) error {
+func validServiceIDAndIP(_ *cobra.Command, args []string) error {
 	if len(args) != 2 {
 		return errors.New("requires two arguments")
 	}
 	b := []byte(args[1])
-	if !ipPortRegex.Match(b) {
-		return errors.New("must be ip:port")
+	if !ipRegex.Match(b) {
+		return errors.New("must be a valid ip")
 	}
 	return nil
 }
 
 var addServerCmd = &cobra.Command{
-	Use:   "add [serviceID] [ip:port]",
+	Use:   "add [serviceID] [ip]",
 	Short: "Add a real server",
-	Args:  validServiceIDIPPort,
+	Args:  validServiceIDAndIP,
 	RunE:  addServer,
 }
 
 var editServerCmd = &cobra.Command{
-	Use:   "edit [serviceID] [ip:port]",
+	Use:   "edit [serviceID] [ip]",
 	Short: "Edit a real server",
-	Args:  validServiceIDIPPort,
+	Args:  validServiceIDAndIP,
 	RunE:  editServer,
 }
 
 var deleteServerCmd = &cobra.Command{
-	Use:   "del [serviceID] [ip:port]",
+	Use:   "del [serviceID] [ip]",
 	Short: "Delete a real server",
-	Args:  validServiceIDIPPort,
+	Args:  validServiceIDAndIP,
 	RunE:  deleteServer,
 }
 
 var (
-	weight  string
-	forward string
+	weight string
 )
 
 func init() {
@@ -64,27 +61,17 @@ func init() {
 	serverCmd.AddCommand(deleteServerCmd)
 
 	for _, f := range []*pflag.FlagSet{addServerCmd.Flags(), editServerCmd.Flags()} {
-		f.StringVarP(&weight, "weight", "w", "", "Weight of the real server, used by the IPVS scheduler.")
-		f.StringVarP(&forward, "forward", "f", "", "Forwarding method, one of [route|tunnel|masq].")
+		f.StringVarP(&weight, "weight", "w", "", "weight of the real server")
 	}
 
 	addServerCmd.MarkFlagRequired("weight")
-	addServerCmd.MarkFlagRequired("forward")
 }
 
-func initServer(serviceID string, ipPort string) (*types.RealServer, error) {
-	matches := ipPortRegex.FindSubmatch([]byte(ipPort))
-	ip := string(matches[1])
-	port, err := strconv.ParseUint(string(matches[2]), 10, 16)
-	if err != nil {
-		return nil, fmt.Errorf("unable to parse port: %v", err)
-	}
-
+func initServer(serviceID string, ip string) (*types.RealServer, error) {
 	server := &types.RealServer{
 		ServiceID: serviceID,
 		Key: &types.RealServer_Key{
-			Ip:   ip,
-			Port: uint32(port),
+			Ip: ip,
 		},
 		Config: &types.RealServer_Config{},
 	}
@@ -95,14 +82,6 @@ func initServer(serviceID string, ipPort string) (*types.RealServer, error) {
 			return nil, fmt.Errorf("unable to convert weight to uint32: %v", err)
 		}
 		server.Config.Weight = &wrappers.UInt32Value{Value: uint32(w)}
-	}
-
-	if forward != "" {
-		f, ok := types.ForwardMethod_value[strings.ToUpper(forward)]
-		if !ok {
-			return nil, fmt.Errorf("unrecognized forward method")
-		}
-		server.Config.Forward = types.ForwardMethod(f)
 	}
 
 	return server, nil

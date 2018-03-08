@@ -99,6 +99,18 @@ func validateService(service *types.VirtualService) error {
 			return status.Errorf(codes.InvalidArgument, "health check up threshold is required and must be > 0")
 		}
 	}
+	if service.RealServerConfig == nil {
+		return status.Error(codes.InvalidArgument, "real server config required")
+	}
+	if service.RealServerConfig.ForwardMethod == types.ForwardMethod_UNSET_FORWARD_METHOD {
+		return status.Error(codes.InvalidArgument, "forward method required")
+	}
+	if service.RealServerConfig.ForwardPort == 0 {
+		return status.Error(codes.InvalidArgument, "forward port required")
+	}
+	if service.RealServerConfig.ForwardPort > math.MaxUint16 {
+		return status.Errorf(codes.InvalidArgument, "invalid port %d", service.RealServerConfig.ForwardPort)
+	}
 	return nil
 }
 
@@ -150,6 +162,7 @@ func (s *server) UpdateService(ctx context.Context, update *types.VirtualService
 	if update.HealthCheck.Endpoint != nil {
 		next.HealthCheck.Endpoint = update.HealthCheck.Endpoint
 	}
+	proto.Merge(next.RealServerConfig, update.RealServerConfig)
 
 	if proto.Equal(prev, next) {
 		log.Infof("No update of %s", update.Id)
@@ -185,7 +198,7 @@ func validateServer(server *types.RealServer) error {
 		return status.Error(codes.InvalidArgument, "service ID required")
 	}
 	if server.Key == nil {
-		return status.Error(codes.InvalidArgument, "server IP:port required")
+		return status.Error(codes.InvalidArgument, "server key required")
 	}
 	if len(server.Key.Ip) == 0 {
 		return status.Error(codes.InvalidArgument, "server IP required")
@@ -193,17 +206,8 @@ func validateServer(server *types.RealServer) error {
 	if net.ParseIP(server.Key.Ip) == nil {
 		return status.Errorf(codes.InvalidArgument, "unable to parse server IP %s", server.Key.Ip)
 	}
-	if server.Key.Port == 0 {
-		return status.Error(codes.InvalidArgument, "server port required")
-	}
-	if server.Key.Port > math.MaxUint16 {
-		return status.Errorf(codes.InvalidArgument, "invalid port %d", server.Key.Port)
-	}
 	if server.Config == nil {
 		return status.Error(codes.InvalidArgument, "server config required")
-	}
-	if server.Config.Forward == types.ForwardMethod_UNSET_FORWARD_METHOD {
-		return status.Error(codes.InvalidArgument, "server forward method required")
 	}
 	if server.Config.Weight == nil {
 		return status.Error(codes.InvalidArgument, "server weight required")
@@ -211,10 +215,17 @@ func validateServer(server *types.RealServer) error {
 	return nil
 }
 
+// ensure port/forward method can't be set - they are managed by the virtual service
+func resetReadOnlyFields(server *types.RealServer) {
+	server.Key.Port = 0
+	server.Config.Forward = types.ForwardMethod_UNSET_FORWARD_METHOD
+}
+
 func (s *server) CreateServer(ctx context.Context, server *types.RealServer) (*empty.Empty, error) {
 	if err := validateServer(server); err != nil {
 		return emptyResponse, err
 	}
+	resetReadOnlyFields(server)
 
 	svc, err := s.store.GetService(ctx, server.ServiceID)
 	if err != nil {
@@ -263,6 +274,7 @@ func (s *server) UpdateServer(ctx context.Context, update *types.RealServer) (*e
 	if err := validateServer(next); err != nil {
 		return emptyResponse, err
 	}
+	resetReadOnlyFields(next)
 
 	if err := s.store.PutServer(ctx, next); err != nil {
 		return emptyResponse, fmt.Errorf("failed to update server: %v", err)
