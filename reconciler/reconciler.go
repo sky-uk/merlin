@@ -89,13 +89,12 @@ func (r *reconciler) initializeHealthChecks() error {
 	}
 
 	for _, service := range services {
-		r.checker.SetHealthCheck(service.Id, service.HealthCheck)
 		servers, err := r.store.ListServers(ctx, service.Id)
 		if err != nil {
 			return fmt.Errorf("failed to query store when initializing: %v", err)
 		}
 		for _, server := range servers {
-			r.checker.AddServer(service.Id, server.Key.Ip)
+			r.checker.SetHealthCheck(server.ServiceID, server.Key, server.HealthCheck)
 		}
 	}
 
@@ -151,9 +150,6 @@ func (r *reconciler) reconcile() {
 			}
 		}
 
-		// Relies on checker to check if health check is the same.
-		r.checker.SetHealthCheck(desiredService.Id, desiredService.HealthCheck)
-
 		desiredServers, err := r.store.ListServers(ctx, desiredService.Id)
 		if err != nil {
 			log.Errorf("unable to list servers in store for %s: %v", desiredService.Key, err)
@@ -165,31 +161,7 @@ func (r *reconciler) reconcile() {
 			continue
 		}
 
-		// health check new servers
-		// do this before checking GetDownServers, to ensure we set weights of new servers correctly
-		for _, desiredServer := range desiredServers {
-			var found bool
-			for _, actualServer := range actualServers {
-				if proto.Equal(desiredServer.Key, actualServer.Key) {
-					found = true
-					break
-				}
-			}
-			if !found {
-				r.checker.AddServer(desiredService.Id, desiredServer.Key.Ip)
-			}
-		}
-
-		// set weight to 0 for any down servers
-		downIPs := r.checker.GetDownServers(desiredService.Id)
-		for _, ip := range downIPs {
-			for _, desiredServer := range desiredServers {
-				if desiredServer.Key.Ip == ip {
-					desiredServer.Config.Weight = &wrappers.UInt32Value{Value: 0}
-				}
-			}
-		}
-
+		// update servers
 		for _, desiredServer := range desiredServers {
 			var match *types.RealServer
 			for _, actualServer := range actualServers {
@@ -198,19 +170,30 @@ func (r *reconciler) reconcile() {
 					break
 				}
 			}
+
+			// update health check
+			r.checker.SetHealthCheck(desiredServer.ServiceID, desiredServer.Key, desiredServer.HealthCheck)
+			if r.checker.IsDown(desiredServer.ServiceID, desiredServer.Key) {
+				desiredServer.Config.Weight = &wrappers.UInt32Value{Value: 0}
+			}
+
+			// update IPVS
 			if match == nil {
 				log.Infof("Adding real server: %v", desiredServer)
 				if err := r.ipvs.AddServer(desiredService.Key, desiredServer); err != nil {
 					log.Errorf("Unable to add server: %v", err)
 				}
-			} else if !proto.Equal(desiredServer.Config, match.Config) {
-				log.Infof("Updating real server: %v", desiredServer)
-				if err := r.ipvs.UpdateServer(desiredService.Key, desiredServer); err != nil {
-					log.Errorf("Unable to update server: %v", err)
+			} else {
+				if !proto.Equal(desiredServer.Config, match.Config) {
+					log.Infof("Updating real server: %v", desiredServer)
+					if err := r.ipvs.UpdateServer(desiredService.Key, desiredServer); err != nil {
+						log.Errorf("Unable to update server: %v", err)
+					}
 				}
 			}
 		}
 
+		// remove old servers
 		for _, actualServer := range actualServers {
 			var found bool
 			for _, desiredServer := range desiredServers {
@@ -222,7 +205,7 @@ func (r *reconciler) reconcile() {
 			if !found {
 				log.Infof("Deleting real server: %v", actualServer)
 				// remove health check
-				r.checker.RemServer(desiredService.Id, actualServer.Key.Ip)
+				r.checker.RemHealthCheck(desiredService.Id, actualServer.Key)
 				// remove from ipvs
 				if err := r.ipvs.DeleteServer(desiredService.Key, actualServer); err != nil {
 					log.Errorf("Unable to delete server: %v", err)
@@ -242,9 +225,6 @@ func (r *reconciler) reconcile() {
 		}
 		if !found {
 			log.Infof("Deleting virtual service: %v", actual)
-			// remove health checks
-			r.checker.SetHealthCheck(actual.Id, &types.VirtualService_HealthCheck{})
-			// remove from ipvs
 			if err := r.ipvs.DeleteService(actual.Key); err != nil {
 				log.Errorf("Unable to delete service: %v", err)
 			}

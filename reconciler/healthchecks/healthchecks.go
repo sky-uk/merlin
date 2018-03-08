@@ -19,28 +19,31 @@ import (
 
 // Checker checks if the real servers of a virtual service are up.
 type Checker interface {
-	// GetDown returns the downed server IPs for the associated id. Downed servers are those that are not currently
-	// passing the health check.
-	GetDownServers(id string) []string
-	// SetHealthCheck sets the health check for the given ID. If health check is nil, it is removed.
-	SetHealthCheck(id string, check *types.VirtualService_HealthCheck) error
-	// AddServer adds a server to health check.
-	AddServer(id, ip string)
-	// RemServer removes a server from health checks.
-	RemServer(id, ip string)
+	// IsDown returns true if the server is down.
+	IsDown(serviceID string, key *types.RealServer_Key) bool
+	// SetHealthCheck on the given server, replacing any existing health check.
+	SetHealthCheck(serviceID string, key *types.RealServer_Key, check *types.RealServer_HealthCheck) error
+	// RemHealthCheck for the given server.
+	RemHealthCheck(serviceID string, key *types.RealServer_Key)
 	// Stop all health checks. Use at shutdown.
 	Stop()
 }
 
+type infoKey struct {
+	id  string
+	key types.RealServer_Key
+}
+
 type checker struct {
-	infos map[string]*checkInfo
+	infos map[infoKey]*checkInfo
 	sync.Mutex
 }
 
 type checkInfo struct {
-	healthCheck    *types.VirtualService_HealthCheck
-	serverStatuses map[string]*checkStatus
-	serverStopChs  map[string]chan struct{}
+	serverIP    string
+	healthCheck *types.RealServer_HealthCheck
+	status      *checkStatus
+	stopCh      chan struct{}
 }
 
 type healthState bool
@@ -63,30 +66,28 @@ type checkStatus struct {
 
 // New creates a new checker.
 func New() Checker {
-	return &checker{infos: make(map[string]*checkInfo)}
+	return &checker{infos: make(map[infoKey]*checkInfo)}
 }
 
-func (c *checker) GetDownServers(id string) []string {
+func (c *checker) IsDown(serviceID string, key *types.RealServer_Key) bool {
 	c.Lock()
 	defer c.Unlock()
 
-	info, ok := c.infos[id]
-	if !ok || info.healthCheck.Endpoint.GetValue() == "" {
-		return nil
+	infoKey := infoKey{id: serviceID, key: *key}
+	info, ok := c.infos[infoKey]
+	if !ok {
+		panic(fmt.Sprintf("bug: health check not added yet: %v", infoKey))
+	}
+	if info.healthCheck.Endpoint.GetValue() == "" {
+		return false
 	}
 
-	var downServers []string
-	for server, status := range info.serverStatuses {
-		status.Lock()
-		if status.state == serverDown {
-			downServers = append(downServers, server)
-		}
-		status.Unlock()
-	}
-	return downServers
+	info.status.Lock()
+	defer info.status.Unlock()
+	return info.status.state == serverDown
 }
 
-func validateCheck(check *types.VirtualService_HealthCheck) error {
+func validateCheck(check *types.RealServer_HealthCheck) error {
 	if check == nil {
 		return errors.New("check should be non-nil")
 	}
@@ -106,7 +107,7 @@ func validateCheck(check *types.VirtualService_HealthCheck) error {
 	return nil
 }
 
-func (c *checker) SetHealthCheck(id string, check *types.VirtualService_HealthCheck) error {
+func (c *checker) SetHealthCheck(serviceID string, key *types.RealServer_Key, check *types.RealServer_HealthCheck) error {
 	if err := validateCheck(check); err != nil {
 		return fmt.Errorf("invalid healthcheck %v: %v", check, err)
 	}
@@ -114,7 +115,8 @@ func (c *checker) SetHealthCheck(id string, check *types.VirtualService_HealthCh
 	c.Lock()
 	defer c.Unlock()
 
-	if info, ok := c.infos[id]; ok {
+	infoKey := infoKey{id: serviceID, key: *key}
+	if info, ok := c.infos[infoKey]; ok {
 		// don't update if it's the same
 		if proto.Equal(info.healthCheck, check) {
 			return nil
@@ -124,92 +126,57 @@ func (c *checker) SetHealthCheck(id string, check *types.VirtualService_HealthCh
 	}
 
 	info := &checkInfo{
-		healthCheck:    check,
-		serverStatuses: make(map[string]*checkStatus),
-		serverStopChs:  make(map[string]chan struct{}),
+		serverIP:    key.Ip,
+		healthCheck: check,
+		status: &checkStatus{
+			state: serverDown,
+			count: 0,
+		},
 	}
-	c.infos[id] = info
+	c.infos[infoKey] = info
+
+	info.startBackgroundHealthCheck()
 	return nil
 }
 
-func (c *checker) updateHealthCheck(info *checkInfo, check *types.VirtualService_HealthCheck) {
+func (c *checker) updateHealthCheck(info *checkInfo, check *types.RealServer_HealthCheck) {
 	info.healthCheck = check
 
-	// stop all existing health check goroutines
-	for server, stopCh := range info.serverStopChs {
-		close(stopCh)
-		delete(info.serverStopChs, server)
+	// stop any existing health check goroutine
+	if info.stopCh != nil {
+		close(info.stopCh)
+		info.stopCh = nil
 	}
 
-	if check.Endpoint.GetValue() == "" {
-		return
-	}
-
-	// kick off new health checks with the updated check
-	for server, status := range info.serverStatuses {
-		info.startBackgroundHealthCheck(server, status)
-	}
+	// kick off new health check
+	info.startBackgroundHealthCheck()
 }
 
-func (c *checker) AddServer(id, server string) {
-	c.Lock()
-	defer c.Unlock()
-
-	info, ok := c.infos[id]
-	if !ok {
-		// initialise health check if not set yet
-		c.Unlock()
-		if err := c.SetHealthCheck(id, &types.VirtualService_HealthCheck{}); err != nil {
-			panic(err)
-		}
-		c.Lock()
-		info = c.infos[id]
-	}
-	if _, ok := info.serverStatuses[server]; ok {
-		// server already added
-		return
-	}
-
-	status := &checkStatus{
-		state: serverDown,
-		count: 0,
-	}
-	info.serverStatuses[server] = status
-
+func (info *checkInfo) startBackgroundHealthCheck() {
 	if info.healthCheck.Endpoint.GetValue() == "" {
-		//  nothing more to do, return
+		// endpoint is empty, don't health check
 		return
 	}
-
-	// kick off health check
-	info.startBackgroundHealthCheck(server, status)
-}
-
-func (info *checkInfo) startBackgroundHealthCheck(server string, status *checkStatus) {
 	stopCh := make(chan struct{})
-	info.serverStopChs[server] = stopCh
-	go status.healthCheck(stopCh, server, info.healthCheck)
+	info.stopCh = stopCh
+	go info.status.healthCheck(info.stopCh, info.serverIP, info.healthCheck)
 }
 
-func (c *checker) RemServer(id, server string) {
+func (c *checker) RemHealthCheck(serviceID string, key *types.RealServer_Key) {
 	c.Lock()
 	defer c.Unlock()
 
-	info, ok := c.infos[id]
+	infoKey := infoKey{id: serviceID, key: *key}
+	info, ok := c.infos[infoKey]
 	if !ok {
 		// nothing to remove
 		return
 	}
-	if _, ok := info.serverStatuses[server]; !ok {
-		// server already removed
-		return
-	}
 
-	if stopCh, ok := info.serverStopChs[server]; ok {
-		close(stopCh)
+	if info.stopCh != nil {
+		close(info.stopCh)
 	}
-	delete(info.serverStopChs, server)
-	delete(info.serverStatuses, server)
+	delete(c.infos, infoKey)
 }
 
 func (c *checker) Stop() {
@@ -217,32 +184,32 @@ func (c *checker) Stop() {
 	defer c.Unlock()
 
 	for _, info := range c.infos {
-		c.updateHealthCheck(info, &types.VirtualService_HealthCheck{})
+		c.updateHealthCheck(info, &types.RealServer_HealthCheck{})
 	}
 }
 
 // healthCheck a real server and update its status
-func (s *checkStatus) healthCheck(stopCh <-chan struct{}, server string, healthCheck *types.VirtualService_HealthCheck) {
-	log.Infof("Starting health check for %s: %v", server, healthCheck)
+func (s *checkStatus) healthCheck(stopCh <-chan struct{}, serverIP string, check *types.RealServer_HealthCheck) {
+	log.Infof("Starting health check for %s: %v", serverIP, check)
 
 	// perform first health check immediately
-	s.performHealthCheck(server, healthCheck)
+	s.performHealthCheck(serverIP, check)
 
-	per, _ := ptypes.Duration(healthCheck.Period)
+	per, _ := ptypes.Duration(check.Period)
 	t := time.NewTicker(per)
 	defer t.Stop()
 	for {
 		select {
 		case <-t.C:
-			s.performHealthCheck(server, healthCheck)
+			s.performHealthCheck(serverIP, check)
 		case <-stopCh:
-			log.Infof("Stopped health check for %s", server)
+			log.Infof("Stopped health check for %s", serverIP)
 			return
 		}
 	}
 }
 
-func (s *checkStatus) performHealthCheck(server string, healthCheck *types.VirtualService_HealthCheck) {
+func (s *checkStatus) performHealthCheck(serverIP string, healthCheck *types.RealServer_HealthCheck) {
 	checkURL, err := url.Parse(healthCheck.Endpoint.GetValue())
 	if err != nil {
 		panic(err)
@@ -264,7 +231,7 @@ func (s *checkStatus) performHealthCheck(server string, healthCheck *types.Virtu
 		Timeout:   timeout,
 	}
 
-	serverURL, err := url.Parse(fmt.Sprintf("http://%s:%s%s", server, checkURL.Port(), checkURL.Path))
+	serverURL, err := url.Parse(fmt.Sprintf("http://%s:%s%s", serverIP, checkURL.Port(), checkURL.Path))
 	if err != nil {
 		panic(err)
 	}
@@ -285,7 +252,7 @@ func (s *checkStatus) performHealthCheck(server string, healthCheck *types.Virtu
 	s.incrementUp(healthCheck)
 }
 
-func (s *checkStatus) incrementUp(healthCheck *types.VirtualService_HealthCheck) {
+func (s *checkStatus) incrementUp(healthCheck *types.RealServer_HealthCheck) {
 	s.Lock()
 	defer s.Unlock()
 	switch s.state {
@@ -300,7 +267,7 @@ func (s *checkStatus) incrementUp(healthCheck *types.VirtualService_HealthCheck)
 	}
 }
 
-func (s *checkStatus) incrementDown(healthCheck *types.VirtualService_HealthCheck) {
+func (s *checkStatus) incrementDown(healthCheck *types.RealServer_HealthCheck) {
 	s.Lock()
 	defer s.Unlock()
 	switch s.state {

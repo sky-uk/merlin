@@ -9,6 +9,9 @@ import (
 
 	"strings"
 
+	"time"
+
+	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/wrappers"
 	"github.com/sky-uk/merlin/types"
 	"github.com/spf13/cobra"
@@ -53,8 +56,13 @@ var deleteServerCmd = &cobra.Command{
 }
 
 var (
-	weight  string
-	forward string
+	weight              string
+	forwardMethod       string
+	healthEndpoint      string
+	healthPeriod        time.Duration
+	healthTimeout       time.Duration
+	healthUpThreshold   uint16
+	healthDownThreshold uint16
 )
 
 func init() {
@@ -64,15 +72,21 @@ func init() {
 	serverCmd.AddCommand(deleteServerCmd)
 
 	for _, f := range []*pflag.FlagSet{addServerCmd.Flags(), editServerCmd.Flags()} {
-		f.StringVarP(&weight, "weight", "w", "", "Weight of the real server, used by the IPVS scheduler.")
-		f.StringVarP(&forward, "forward", "f", "", "Forwarding method, one of [route|tunnel|masq].")
+		f.StringVarP(&weight, "weight", "w", "", "weight of the real server")
+		f.StringVarP(&forwardMethod, "forward-method", "f", "", "one of [route|tunnel|masq]")
+		f.StringVar(&healthEndpoint, "health-endpoint", "",
+			"endpoint for health checks, should be a valid URL 'http://:8080/health' or empty to disable")
+		f.DurationVar(&healthPeriod, "health-period", 0, "time period between health checks")
+		f.DurationVar(&healthTimeout, "health-timeout", 0, "timeout for health checks")
+		f.Uint16Var(&healthUpThreshold, "health-up", 0, "threshold of successful health checks")
+		f.Uint16Var(&healthDownThreshold, "health-down", 0, "Threshold of failed health checks")
 	}
 
 	addServerCmd.MarkFlagRequired("weight")
 	addServerCmd.MarkFlagRequired("forward")
 }
 
-func initServer(serviceID string, ipPort string) (*types.RealServer, error) {
+func initServer(cmd *cobra.Command, serviceID string, ipPort string) (*types.RealServer, error) {
 	matches := ipPortRegex.FindSubmatch([]byte(ipPort))
 	ip := string(matches[1])
 	port, err := strconv.ParseUint(string(matches[2]), 10, 16)
@@ -86,7 +100,8 @@ func initServer(serviceID string, ipPort string) (*types.RealServer, error) {
 			Ip:   ip,
 			Port: uint32(port),
 		},
-		Config: &types.RealServer_Config{},
+		Config:      &types.RealServer_Config{},
+		HealthCheck: &types.RealServer_HealthCheck{},
 	}
 
 	if weight != "" {
@@ -97,21 +112,37 @@ func initServer(serviceID string, ipPort string) (*types.RealServer, error) {
 		server.Config.Weight = &wrappers.UInt32Value{Value: uint32(w)}
 	}
 
-	if forward != "" {
-		f, ok := types.ForwardMethod_value[strings.ToUpper(forward)]
+	if forwardMethod != "" {
+		f, ok := types.ForwardMethod_value[strings.ToUpper(forwardMethod)]
 		if !ok {
 			return nil, fmt.Errorf("unrecognized forward method")
 		}
 		server.Config.Forward = types.ForwardMethod(f)
 	}
 
-	return server, nil
+	endpointFlag := cmd.Flag("health-endpoint")
+	if endpointFlag != nil && endpointFlag.Changed {
+		server.HealthCheck.Endpoint = &wrappers.StringValue{Value: healthEndpoint}
+	}
+	if healthPeriod != 0 {
+		server.HealthCheck.Period = ptypes.DurationProto(healthPeriod)
+	}
+	if healthTimeout != 0 {
+		server.HealthCheck.Timeout = ptypes.DurationProto(healthTimeout)
+	}
+	if healthUpThreshold != 0 {
+		server.HealthCheck.UpThreshold = uint32(healthUpThreshold)
+	}
+	if healthDownThreshold != 0 {
+		server.HealthCheck.DownThreshold = uint32(healthDownThreshold)
+	}
 
+	return server, nil
 }
 
-func addServer(_ *cobra.Command, args []string) error {
+func addServer(cmd *cobra.Command, args []string) error {
 	return client(func(c types.MerlinClient) error {
-		server, err := initServer(args[0], args[1])
+		server, err := initServer(cmd, args[0], args[1])
 		if err != nil {
 			return err
 		}
@@ -123,9 +154,9 @@ func addServer(_ *cobra.Command, args []string) error {
 	})
 }
 
-func editServer(_ *cobra.Command, args []string) error {
+func editServer(cmd *cobra.Command, args []string) error {
 	return client(func(c types.MerlinClient) error {
-		server, err := initServer(args[0], args[1])
+		server, err := initServer(cmd, args[0], args[1])
 		if err != nil {
 			return err
 		}
@@ -136,9 +167,9 @@ func editServer(_ *cobra.Command, args []string) error {
 	})
 }
 
-func deleteServer(_ *cobra.Command, args []string) error {
+func deleteServer(cmd *cobra.Command, args []string) error {
 	return client(func(c types.MerlinClient) error {
-		server, err := initServer(args[0], args[1])
+		server, err := initServer(cmd, args[0], args[1])
 		if err != nil {
 			return err
 		}
