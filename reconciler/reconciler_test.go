@@ -39,7 +39,7 @@ var _ = Describe("Reconciler", func() {
 			Flags:     []string{"flag-1", "flag-2"},
 		},
 		HealthCheck: &types.VirtualService_HealthCheck{
-			Endpoint:      &wrappers.StringValue{Value: "http:102/health"},
+			Endpoint:      &wrappers.StringValue{Value: "http://:102/health"},
 			Period:        ptypes.DurationProto(10 * time.Second),
 			Timeout:       ptypes.DurationProto(2 * time.Second),
 			UpThreshold:   2,
