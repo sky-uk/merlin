@@ -24,6 +24,8 @@ func TestReconciler(t *testing.T) {
 	RunSpecs(t, "Reconciler Suite")
 }
 
+type servers map[*types.VirtualService][]*types.RealServer
+
 var _ = Describe("Reconciler", func() {
 	// test fixtures
 	svcKey1 := &types.VirtualService_Key{
@@ -105,8 +107,6 @@ var _ = Describe("Reconciler", func() {
 	disabledServer2.Config.Weight.Value = 0
 
 	Describe("reconcile", func() {
-		type servers map[*types.VirtualService][]*types.RealServer
-
 		type reconcileCase struct {
 			// services
 			actualServices  []*types.VirtualService
@@ -217,40 +217,18 @@ var _ = Describe("Reconciler", func() {
 			}
 
 			// clone services so fixtures aren't shared (store and ipvs structs will be different)
-			var copiedServices []*types.VirtualService
-			for _, service := range c.desiredServices {
-				copiedServices = append(copiedServices, proto.Clone(service).(*types.VirtualService))
-			}
-			c.desiredServices = copiedServices
-			copiedServices = nil
-			for _, service := range c.actualServices {
-				copiedServices = append(copiedServices, proto.Clone(service).(*types.VirtualService))
-			}
-			c.actualServices = copiedServices
+			c.desiredServices = copyServices(c.desiredServices)
+			c.actualServices = copyServices(c.actualServices)
 
 			// clone and fill in servers so fixtures aren't shared
-			copyServers := func(serviceToServers servers, setServiceID bool) {
-				for service, servers := range serviceToServers {
-					var copied []*types.RealServer
-					for _, server := range servers {
-						copiedServer := proto.Clone(server).(*types.RealServer)
-						if setServiceID {
-							// will have a ServiceID as desired servers come from the store
-							copiedServer.ServiceID = service.Id
-						}
-						copied = append(copied, copiedServer)
-					}
-					serviceToServers[service] = copied
-				}
-			}
 			// actual servers are from IPVS, so no serviceID will be set
-			copyServers(c.actualServers, false)
+			c.actualServers = copyServers(c.actualServers, false)
 			// deleted servers are from IPVS, so no serviceID will be set
-			copyServers(c.deletedServers, false)
-			copyServers(c.desiredServers, true)
-			copyServers(c.createdServers, true)
-			copyServers(c.updatedServers, true)
-			copyServers(c.downServers, true)
+			c.deletedServers = copyServers(c.deletedServers, false)
+			c.desiredServers = copyServers(c.desiredServers, true)
+			c.createdServers = copyServers(c.createdServers, true)
+			c.updatedServers = copyServers(c.updatedServers, true)
+			c.downServers = copyServers(c.downServers, true)
 
 			// add expectations
 			// store
@@ -353,6 +331,31 @@ var _ = Describe("Reconciler", func() {
 		})
 	})
 })
+
+func copyServices(services []*types.VirtualService) []*types.VirtualService {
+	var copiedServices []*types.VirtualService
+	for _, service := range services {
+		copiedServices = append(copiedServices, proto.Clone(service).(*types.VirtualService))
+	}
+	return copiedServices
+}
+
+func copyServers(serviceToServers servers, setServiceID bool) servers {
+	copiedServers := make(servers)
+	for service, realServers := range serviceToServers {
+		var copied []*types.RealServer
+		for _, realServer := range realServers {
+			copiedServer := proto.Clone(realServer).(*types.RealServer)
+			if setServiceID {
+				// will have a ServiceID as desired servers come from the store
+				copiedServer.ServiceID = service.Id
+			}
+			copied = append(copied, copiedServer)
+		}
+		copiedServers[service] = copied
+	}
+	return copiedServers
+}
 
 type storeMock struct {
 	mock.Mock

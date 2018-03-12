@@ -183,12 +183,10 @@ func (r *reconciler) reconcile() {
 				if err := r.ipvs.AddServer(desiredService.Key, desiredServer); err != nil {
 					log.Errorf("Unable to add server: %v", err)
 				}
-			} else {
-				if !proto.Equal(desiredServer.Config, match.Config) {
-					log.Infof("Updating real server: %v", desiredServer)
-					if err := r.ipvs.UpdateServer(desiredService.Key, desiredServer); err != nil {
-						log.Errorf("Unable to update server: %v", err)
-					}
+			} else if !proto.Equal(desiredServer.Config, match.Config) {
+				log.Infof("Updating real server: %v", desiredServer)
+				if err := r.ipvs.UpdateServer(desiredService.Key, desiredServer); err != nil {
+					log.Errorf("Unable to update server: %v", err)
 				}
 			}
 		}
