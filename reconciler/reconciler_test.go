@@ -24,6 +24,8 @@ func TestReconciler(t *testing.T) {
 	RunSpecs(t, "Reconciler Suite")
 }
 
+type servers map[*types.VirtualService][]*types.RealServer
+
 var _ = Describe("Reconciler", func() {
 	// test fixtures
 	svcKey1 := &types.VirtualService_Key{
@@ -37,13 +39,6 @@ var _ = Describe("Reconciler", func() {
 		Config: &types.VirtualService_Config{
 			Scheduler: "sh",
 			Flags:     []string{"flag-1", "flag-2"},
-		},
-		HealthCheck: &types.VirtualService_HealthCheck{
-			Endpoint:      &wrappers.StringValue{Value: "http://:102/health"},
-			Period:        ptypes.DurationProto(10 * time.Second),
-			Timeout:       ptypes.DurationProto(2 * time.Second),
-			UpThreshold:   2,
-			DownThreshold: 1,
 		},
 	}
 	svc1Updated := proto.Clone(svc1).(*types.VirtualService)
@@ -80,14 +75,16 @@ var _ = Describe("Reconciler", func() {
 			Weight:  &wrappers.UInt32Value{Value: 1},
 			Forward: types.ForwardMethod_ROUTE,
 		},
-	}
-	server1Updated := &types.RealServer{
-		Key: serverKey1,
-		Config: &types.RealServer_Config{
-			Weight:  &wrappers.UInt32Value{Value: 0},
-			Forward: types.ForwardMethod_ROUTE,
+		HealthCheck: &types.RealServer_HealthCheck{
+			Endpoint:      &wrappers.StringValue{Value: "http://:102/health"},
+			Period:        ptypes.DurationProto(10 * time.Second),
+			Timeout:       ptypes.DurationProto(2 * time.Second),
+			UpThreshold:   2,
+			DownThreshold: 1,
 		},
 	}
+	server1Updated := proto.Clone(server1).(*types.RealServer)
+	server1Updated.Config.Weight.Value = 0
 	serverKey2 := &types.RealServer_Key{
 		Ip:   "172.16.1.2",
 		Port: 502,
@@ -98,15 +95,18 @@ var _ = Describe("Reconciler", func() {
 			Weight:  &wrappers.UInt32Value{Value: 1},
 			Forward: types.ForwardMethod_ROUTE,
 		},
+		HealthCheck: &types.RealServer_HealthCheck{
+			Endpoint:      &wrappers.StringValue{Value: "http://:304/healme"},
+			Period:        ptypes.DurationProto(30 * time.Second),
+			Timeout:       ptypes.DurationProto(1 * time.Second),
+			UpThreshold:   4,
+			DownThreshold: 2,
+		},
 	}
 	disabledServer2 := proto.Clone(server2).(*types.RealServer)
-	disabledServer2.Config.Weight = &wrappers.UInt32Value{Value: 0}
+	disabledServer2.Config.Weight.Value = 0
 
 	Describe("reconcile", func() {
-		type servers map[*types.VirtualService][]*types.RealServer
-		// map of serviceID to list of IPs
-		type serverIPs map[string][]string
-
 		type reconcileCase struct {
 			// services
 			actualServices  []*types.VirtualService
@@ -123,7 +123,7 @@ var _ = Describe("Reconciler", func() {
 			deletedServers servers
 
 			// health check
-			downIPs serverIPs
+			downServers servers
 		}
 
 		cases := []TableEntry{
@@ -176,7 +176,7 @@ var _ = Describe("Reconciler", func() {
 				desiredServices: []*types.VirtualService{svc1},
 				actualServers:   servers{svc1: {server1, server2}},
 				desiredServers:  servers{svc1: {server1, server2}},
-				downIPs:         serverIPs{svc1.Id: {server2.Key.Ip}},
+				downServers:     servers{svc1: {server2}},
 				updatedServers:  servers{svc1: {disabledServer2}},
 			}),
 		}
@@ -201,8 +201,8 @@ var _ = Describe("Reconciler", func() {
 			if c.desiredServers == nil {
 				c.desiredServers = make(servers)
 			}
-			if c.downIPs == nil {
-				c.downIPs = make(serverIPs)
+			if c.downServers == nil {
+				c.downServers = make(servers)
 			}
 			for _, svc := range c.desiredServices {
 				if _, ok := c.actualServers[svc]; !ok {
@@ -211,26 +211,30 @@ var _ = Describe("Reconciler", func() {
 				if _, ok := c.desiredServers[svc]; !ok {
 					c.desiredServers[svc] = []*types.RealServer{}
 				}
-				if _, ok := c.downIPs[svc.Id]; !ok {
-					c.downIPs[svc.Id] = []string{}
+				if _, ok := c.downServers[svc]; !ok {
+					c.downServers[svc] = []*types.RealServer{}
 				}
 			}
 
+			// clone services so fixtures aren't shared (store and ipvs structs will be different)
+			c.desiredServices = copyServices(c.desiredServices)
+			c.actualServices = copyServices(c.actualServices)
+
+			// clone and fill in servers so fixtures aren't shared
+			// actual servers are from IPVS, so no serviceID will be set
+			c.actualServers = copyServers(c.actualServers, false)
+			// deleted servers are from IPVS, so no serviceID will be set
+			c.deletedServers = copyServers(c.deletedServers, false)
+			c.desiredServers = copyServers(c.desiredServers, true)
+			c.createdServers = copyServers(c.createdServers, true)
+			c.updatedServers = copyServers(c.updatedServers, true)
+			c.downServers = copyServers(c.downServers, true)
+
 			// add expectations
 			// store
-			// clone services to ensure reconciler gets different instances from the store versus ipvs
-			var storeServices []*types.VirtualService
-			for _, service := range c.desiredServices {
-				storeServices = append(storeServices, proto.Clone(service).(*types.VirtualService))
-			}
-			storeMock.On("ListServices", mock.Anything).Return(storeServices, nil)
-			for k, v := range c.desiredServers {
-				// clone servers to ensure reconciler gets different instances from the store versus ipvs
-				var storeServers []*types.RealServer
-				for _, server := range v {
-					storeServers = append(storeServers, proto.Clone(server).(*types.RealServer))
-				}
-				storeMock.On("ListServers", mock.Anything, k.Id).Return(storeServers, nil)
+			storeMock.On("ListServices", mock.Anything).Return(c.desiredServices, nil)
+			for service, servers := range c.desiredServers {
+				storeMock.On("ListServers", mock.Anything, service.Id).Return(servers, nil)
 			}
 
 			// ipvs
@@ -244,44 +248,50 @@ var _ = Describe("Reconciler", func() {
 			for _, s := range c.deletedServices {
 				ipvsMock.On("DeleteService", s.Key).Return(nil)
 			}
-			for k, v := range c.actualServers {
-				ipvsMock.On("ListServers", k.Key).Return(v, nil)
+			for service, servers := range c.actualServers {
+				ipvsMock.On("ListServers", service.Key).Return(servers, nil)
 			}
-			for k, v := range c.createdServers {
-				for _, server := range v {
-					ipvsMock.On("AddServer", k.Key, server).Return(nil)
+			for service, servers := range c.createdServers {
+				for _, server := range servers {
+					ipvsMock.On("AddServer", service.Key, server).Return(nil)
 				}
 			}
-			for k, v := range c.updatedServers {
-				for _, server := range v {
-					ipvsMock.On("UpdateServer", k.Key, server).Return(nil)
+			for service, servers := range c.updatedServers {
+				for _, server := range servers {
+					ipvsMock.On("UpdateServer", service.Key, server).Return(nil)
 				}
 			}
-			for k, v := range c.deletedServers {
-				for _, server := range v {
-					ipvsMock.On("DeleteServer", k.Key, server).Return(nil)
+			for service, servers := range c.deletedServers {
+				for _, server := range servers {
+					ipvsMock.On("DeleteServer", service.Key, server).Return(nil)
 				}
 			}
 
 			// health checker
-			for _, service := range c.desiredServices {
-				checkerMock.On("SetHealthCheck", service.Id, service.HealthCheck).Return(nil)
-			}
-			for _, service := range c.deletedServices {
-				checkerMock.On("SetHealthCheck", service.Id, &types.VirtualService_HealthCheck{}).Return(nil)
-			}
-			for service, server := range c.createdServers {
-				for _, server := range server {
-					checkerMock.On("AddServer", service.Id, server.Key.Ip)
+			for _, servers := range c.desiredServers {
+				for _, server := range servers {
+					checkerMock.On("SetHealthCheck", server.ServiceID, server.Key, server.HealthCheck).Return(nil)
 				}
 			}
-			for service, server := range c.deletedServers {
-				for _, server := range server {
-					checkerMock.On("RemServer", service.Id, server.Key.Ip)
+			for service, servers := range c.deletedServers {
+				for _, server := range servers {
+					checkerMock.On("RemHealthCheck", service.Id, server.Key)
 				}
 			}
-			for serviceID, ips := range c.downIPs {
-				checkerMock.On("GetDownServers", serviceID).Return(ips)
+			for service, servers := range c.desiredServers {
+				for _, server := range servers {
+					var isDown bool
+					for _, downServer := range c.downServers[service] {
+						if proto.Equal(server.Key, downServer.Key) {
+							isDown = true
+						}
+					}
+					if isDown {
+						checkerMock.On("IsDown", server.ServiceID, server.Key).Return(true)
+					} else {
+						checkerMock.On("IsDown", server.ServiceID, server.Key).Return(false)
+					}
+				}
 			}
 
 			// reconcile
@@ -304,12 +314,13 @@ var _ = Describe("Reconciler", func() {
 
 			storeServices := []*types.VirtualService{svc1}
 			storeMock.On("ListServices", mock.Anything).Return(storeServices, nil)
+			server1.ServiceID = svc1.Id
+			server2.ServiceID = svc1.Id
 			storeServers := []*types.RealServer{server1, server2}
 			storeMock.On("ListServers", mock.Anything, svc1.Id).Return(storeServers, nil)
 
-			checkerMock.On("SetHealthCheck", svc1.Id, svc1.HealthCheck).Return(nil)
-			checkerMock.On("AddServer", svc1.Id, server1.Key.Ip)
-			checkerMock.On("AddServer", svc1.Id, server2.Key.Ip)
+			checkerMock.On("SetHealthCheck", svc1.Id, server1.Key, server1.HealthCheck).Return(nil)
+			checkerMock.On("SetHealthCheck", svc1.Id, server2.Key, server2.HealthCheck).Return(nil)
 			checkerMock.On("Stop").Return(nil)
 
 			err := r.Start()
@@ -320,6 +331,31 @@ var _ = Describe("Reconciler", func() {
 		})
 	})
 })
+
+func copyServices(services []*types.VirtualService) []*types.VirtualService {
+	var copiedServices []*types.VirtualService
+	for _, service := range services {
+		copiedServices = append(copiedServices, proto.Clone(service).(*types.VirtualService))
+	}
+	return copiedServices
+}
+
+func copyServers(serviceToServers servers, setServiceID bool) servers {
+	copiedServers := make(servers)
+	for service, realServers := range serviceToServers {
+		var copied []*types.RealServer
+		for _, realServer := range realServers {
+			copiedServer := proto.Clone(realServer).(*types.RealServer)
+			if setServiceID {
+				// will have a ServiceID as desired servers come from the store
+				copiedServer.ServiceID = service.Id
+			}
+			copied = append(copied, copiedServer)
+		}
+		copiedServers[service] = copied
+	}
+	return copiedServers
+}
 
 type storeMock struct {
 	mock.Mock
@@ -378,22 +414,18 @@ type checkerMock struct {
 	mock.Mock
 }
 
-func (m *checkerMock) GetDownServers(id string) []string {
-	args := m.Called(id)
-	return args.Get(0).([]string)
+func (m *checkerMock) IsDown(serviceID string, key *types.RealServer_Key) bool {
+	args := m.Called(serviceID, key)
+	return args.Bool(0)
 }
 
-func (m *checkerMock) SetHealthCheck(id string, check *types.VirtualService_HealthCheck) error {
-	args := m.Called(id, check)
+func (m *checkerMock) SetHealthCheck(serviceID string, key *types.RealServer_Key, check *types.RealServer_HealthCheck) error {
+	args := m.Called(serviceID, key, check)
 	return args.Error(0)
 }
 
-func (m *checkerMock) AddServer(id string, server string) {
-	m.Called(id, server)
-}
-
-func (m *checkerMock) RemServer(id string, server string) {
-	m.Called(id, server)
+func (m *checkerMock) RemHealthCheck(serviceID string, key *types.RealServer_Key) {
+	m.Called(serviceID, key)
 }
 
 func (m *checkerMock) Stop() {

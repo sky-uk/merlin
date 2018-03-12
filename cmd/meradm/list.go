@@ -35,8 +35,8 @@ func list(_ *cobra.Command, _ []string) error {
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', 0)
 
 		fmt.Fprintln(w, "ID\tProt\tLocalAddress:Port\tScheduler\tFlags\t\t")
-		fmt.Fprintln(w, "\t    \tHealth\tPeriod\tTimeout\tUp/Down\t")
 		fmt.Fprintln(w, "\t  ->\tRemoteAddress:Port\tForward\tWeight\t\t")
+		fmt.Fprintln(w, "\t    \tHealthEndpoint\tPeriod\tTimeout\tUp/Down\t")
 
 		for _, item := range resp.Items {
 			svc := item.Service
@@ -49,23 +49,25 @@ func list(_ *cobra.Command, _ []string) error {
 				svc.Config.Scheduler,
 				strings.Join(svc.Config.Flags, ","))
 
-			if svc.HealthCheck.Endpoint.GetValue() != "" {
-				period, _ := ptypes.Duration(svc.HealthCheck.Period)
-				timeout, _ := ptypes.Duration(svc.HealthCheck.Timeout)
-				fmt.Fprintf(w, "\t    \t%s\t%v\t%v\t%d/%d\t\n",
-					svc.HealthCheck.Endpoint,
-					period,
-					timeout,
-					svc.HealthCheck.UpThreshold,
-					svc.HealthCheck.DownThreshold)
-			}
-
 			for _, server := range item.Servers {
 				fmt.Fprintf(w, "\t  ->\t%s:%d\t%s\t%d\t\t\n",
 					server.Key.GetIp(),
 					server.Key.GetPort(),
 					server.Config.GetForward(),
 					server.Config.GetWeight().GetValue())
+
+				check := server.HealthCheck
+				if check.Endpoint.GetValue() != "" {
+					period, _ := ptypes.Duration(check.Period)
+					timeout, _ := ptypes.Duration(check.Timeout)
+					fmt.Fprintf(w, "\t    \t%s\t%v\t%v\t%d/%d\t\n",
+						check.Endpoint.Value,
+						period,
+						timeout,
+						check.UpThreshold,
+						check.DownThreshold)
+				}
+
 			}
 		}
 

@@ -67,44 +67,10 @@ func validateService(service *types.VirtualService) error {
 	if service.Config.Scheduler == "" {
 		return status.Error(codes.InvalidArgument, "service scheduler required")
 	}
-	if service.HealthCheck.Endpoint.GetValue() != "" {
-		u, err := url.Parse(service.HealthCheck.Endpoint.Value)
-		if err != nil {
-			return status.Errorf(codes.InvalidArgument, "health check endpoint %q must be a valid url: %v",
-				service.HealthCheck.Endpoint, err)
-		}
-		switch u.Scheme {
-		case "http":
-			// valid
-		default:
-			return status.Errorf(codes.InvalidArgument, "health check endpoint scheme %q not recognized",
-				u.Scheme)
-		}
-		if u.Port() == "" {
-			return status.Errorf(codes.InvalidArgument, "health check endpoint is missing port")
-		}
-		if service.HealthCheck.Period.Seconds == 0 && service.HealthCheck.Period.Nanos == 0 {
-			return status.Errorf(codes.InvalidArgument, "health check period is required")
-		}
-		if service.HealthCheck.Timeout.Seconds == 0 && service.HealthCheck.Timeout.Nanos == 0 {
-			return status.Errorf(codes.InvalidArgument, "health check timeout is required")
-		}
-		if service.HealthCheck.DownThreshold == 0 {
-			return status.Errorf(codes.InvalidArgument, "health check down threshold is required and must be > 0")
-		}
-		if service.HealthCheck.UpThreshold == 0 {
-			return status.Errorf(codes.InvalidArgument, "health check up threshold is required and must be > 0")
-		}
-	}
 	return nil
 }
 
 func (s *server) CreateService(ctx context.Context, service *types.VirtualService) (*empty.Empty, error) {
-	// ensure health check field always exists
-	if service.HealthCheck == nil {
-		service.HealthCheck = &types.VirtualService_HealthCheck{}
-	}
-
 	if err := validateService(service); err != nil {
 		return emptyResponse, err
 	}
@@ -140,11 +106,6 @@ func (s *server) UpdateService(ctx context.Context, update *types.VirtualService
 		next.Config.Flags = nil
 	}
 	proto.Merge(next.Config, update.Config)
-	proto.Merge(next.HealthCheck, update.HealthCheck)
-	// force update of endpoint if set
-	if update.HealthCheck.Endpoint != nil {
-		next.HealthCheck.Endpoint = update.HealthCheck.Endpoint
-	}
 
 	if proto.Equal(prev, next) {
 		log.Infof("No update of %s", update.Id)
@@ -200,10 +161,44 @@ func validateServer(server *types.RealServer) error {
 	if server.Config.Weight == nil {
 		return status.Error(codes.InvalidArgument, "server weight required")
 	}
+	if server.HealthCheck.Endpoint.GetValue() != "" {
+		u, err := url.Parse(server.HealthCheck.Endpoint.Value)
+		if err != nil {
+			return status.Errorf(codes.InvalidArgument, "health check endpoint %q must be a valid url: %v",
+				server.HealthCheck.Endpoint, err)
+		}
+		switch u.Scheme {
+		case "http":
+			// valid
+		default:
+			return status.Errorf(codes.InvalidArgument, "health check endpoint scheme %q not recognized",
+				u.Scheme)
+		}
+		if u.Port() == "" {
+			return status.Errorf(codes.InvalidArgument, "health check endpoint is missing port")
+		}
+		if server.HealthCheck.Period.Seconds == 0 && server.HealthCheck.Period.Nanos == 0 {
+			return status.Errorf(codes.InvalidArgument, "health check period is required")
+		}
+		if server.HealthCheck.Timeout.Seconds == 0 && server.HealthCheck.Timeout.Nanos == 0 {
+			return status.Errorf(codes.InvalidArgument, "health check timeout is required")
+		}
+		if server.HealthCheck.DownThreshold == 0 {
+			return status.Errorf(codes.InvalidArgument, "health check down threshold is required and must be > 0")
+		}
+		if server.HealthCheck.UpThreshold == 0 {
+			return status.Errorf(codes.InvalidArgument, "health check up threshold is required and must be > 0")
+		}
+	}
 	return nil
 }
 
 func (s *server) CreateServer(ctx context.Context, server *types.RealServer) (*empty.Empty, error) {
+	// ensure health check field always exists
+	if server.HealthCheck == nil {
+		server.HealthCheck = &types.RealServer_HealthCheck{}
+	}
+
 	if err := validateServer(server); err != nil {
 		return emptyResponse, err
 	}
@@ -244,6 +239,11 @@ func (s *server) UpdateServer(ctx context.Context, update *types.RealServer) (*e
 
 	next := proto.Clone(prev).(*types.RealServer)
 	proto.Merge(next.Config, update.Config)
+	proto.Merge(next.HealthCheck, update.HealthCheck)
+	// force update of endpoint if set
+	if update.HealthCheck.Endpoint != nil {
+		next.HealthCheck.Endpoint = update.HealthCheck.Endpoint
+	}
 
 	if proto.Equal(prev, next) {
 		log.Infof("No update of %s/%s", update.ServiceID, update.Key)

@@ -44,12 +44,14 @@ func getServerStatus() int {
 
 var _ = Describe("HealthChecks", func() {
 	var (
-		id                                      = "myservice"
+		serviceID                               = "myservice"
 		checkPath                               = "/health"
-		check                                   *types.VirtualService_HealthCheck
+		check                                   *types.RealServer_HealthCheck
 		period, timeout, waitForUp, waitForDown time.Duration
 		checker                                 Checker
 		ts                                      *httptest.Server
+		localServer1                            = &types.RealServer_Key{Ip: "127.0.0.1"}
+		localServer2                            = &types.RealServer_Key{Ip: "localhost"}
 	)
 
 	BeforeEach(func() {
@@ -70,7 +72,7 @@ var _ = Describe("HealthChecks", func() {
 		}))
 
 		u, _ := url.Parse(ts.URL)
-		check = &types.VirtualService_HealthCheck{
+		check = &types.RealServer_HealthCheck{
 			Endpoint:      &wrappers.StringValue{Value: fmt.Sprintf("http://:%s%s", u.Port(), checkPath)},
 			Period:        ptypes.DurationProto(period),
 			Timeout:       ptypes.DurationProto(timeout),
@@ -89,19 +91,16 @@ var _ = Describe("HealthChecks", func() {
 	It("should report server is down if non-responsive", func() {
 		checker := New()
 		check.Endpoint = &wrappers.StringValue{Value: "http://:9999/nowhere"}
-		checker.SetHealthCheck(id, check)
-		checker.AddServer(id, "127.0.0.1")
+		checker.SetHealthCheck(serviceID, localServer1, check)
 
 		time.Sleep(waitForDown)
-		downServers := checker.GetDownServers(id)
-
-		Expect(downServers).To(ConsistOf("127.0.0.1"))
+		Expect(checker.IsDown(serviceID, localServer1)).To(BeTrue())
 	})
 
 	DescribeTable("validate health check", func(endpoint string) {
 		checker := New()
 		check.Endpoint = &wrappers.StringValue{Value: endpoint}
-		err := checker.SetHealthCheck(id, check)
+		err := checker.SetHealthCheck(serviceID, localServer1, check)
 		Expect(err).To(HaveOccurred())
 	},
 		Entry("unsupported scheme", "myscheme://:9111/health"),
@@ -113,127 +112,82 @@ var _ = Describe("HealthChecks", func() {
 		})
 
 		It("should not list servers in down IPs", func() {
-			checker.SetHealthCheck(id, check)
-			checker.AddServer(id, "127.0.0.1")
-			checker.AddServer(id, "localhost")
+			checker.SetHealthCheck(serviceID, localServer1, check)
+			checker.SetHealthCheck(serviceID, localServer2, check)
 
 			time.Sleep(waitForUp)
-			downServers := checker.GetDownServers(id)
-
-			Expect(downServers).To(BeEmpty())
+			Expect(checker.IsDown(serviceID, localServer1)).To(BeFalse())
+			Expect(checker.IsDown(serviceID, localServer2)).To(BeFalse())
 		})
 
 		It("should consider server down before health check happens", func() {
-			checker.SetHealthCheck(id, check)
-			checker.AddServer(id, "127.0.0.1")
+			checker.SetHealthCheck(serviceID, localServer1, check)
 
-			downServers := checker.GetDownServers(id)
-
-			Expect(downServers).To(ConsistOf("127.0.0.1"))
+			Expect(checker.IsDown(serviceID, localServer1)).To(BeTrue())
 		})
 
 		It("can transition to down and back up", func() {
-			checker.SetHealthCheck(id, check)
-			checker.AddServer(id, "127.0.0.1")
+			checker.SetHealthCheck(serviceID, localServer1, check)
 			time.Sleep(waitForUp)
 
 			setServerStatus(http.StatusInternalServerError)
 			time.Sleep(waitForDown)
-			Expect(checker.GetDownServers(id)).To(ConsistOf("127.0.0.1"))
+			Expect(checker.IsDown(serviceID, localServer1)).To(BeTrue())
 
 			setServerStatus(http.StatusOK)
 			time.Sleep(waitForUp)
-			Expect(checker.GetDownServers(id)).To(BeEmpty())
+			Expect(checker.IsDown(serviceID, localServer1)).To(BeFalse())
 		})
 
-		It("should update health check, finding server", func() {
-			brokenCheck := proto.Clone(check).(*types.VirtualService_HealthCheck)
+		It("can update to a passing health check", func() {
+			brokenCheck := proto.Clone(check).(*types.RealServer_HealthCheck)
 			brokenCheck.Endpoint = &wrappers.StringValue{Value: "http://:9999/nowhere"}
-			checker.SetHealthCheck(id, brokenCheck)
-			checker.AddServer(id, "127.0.0.1")
+			checker.SetHealthCheck(serviceID, localServer1, brokenCheck)
 
 			time.Sleep(waitForUp)
-			downServers := checker.GetDownServers(id)
-			Expect(downServers).To(ConsistOf("127.0.0.1"))
+			Expect(checker.IsDown(serviceID, localServer1)).To(BeTrue())
 
-			checker.SetHealthCheck(id, check)
+			checker.SetHealthCheck(serviceID, localServer1, check)
 			time.Sleep(waitForUp)
-			downServers = checker.GetDownServers(id)
-			Expect(downServers).To(BeEmpty())
-
-			// check that adding a server after health check change also works
-			checker.AddServer(id, "localhost")
-			time.Sleep(waitForUp)
-			downServers = checker.GetDownServers(id)
-			Expect(downServers).To(BeEmpty())
-		})
-
-		It("can add health check after adding servers", func() {
-			checker.RemServer(id, "127.0.0.1")
-			checker.AddServer(id, "127.0.0.1")
-			checker.RemServer(id, "127.0.0.1")
-			checker.AddServer(id, "127.0.0.1")
-			checker.AddServer(id, "localhost")
-			checker.SetHealthCheck(id, check)
-
-			time.Sleep(waitForUp)
-			downServers := checker.GetDownServers(id)
-
-			Expect(downServers).To(BeEmpty())
-
-			// changing health check to broken should work as well
-			brokenCheck := proto.Clone(check).(*types.VirtualService_HealthCheck)
-			brokenCheck.Endpoint = &wrappers.StringValue{Value: "http://:9999/nowhere"}
-			checker.SetHealthCheck(id, brokenCheck)
-			time.Sleep(waitForDown)
-			Expect(checker.GetDownServers(id)).To(ConsistOf("127.0.0.1", "localhost"))
+			Expect(checker.IsDown(serviceID, localServer1)).To(BeFalse())
 		})
 
 		It("can remove then add back the server", func() {
-			checker.SetHealthCheck(id, check)
-			checker.AddServer(id, "127.0.0.1")
-			checker.RemServer(id, "127.0.0.1")
+			checker.SetHealthCheck(serviceID, localServer1, check)
+			checker.RemHealthCheck(serviceID, localServer1)
 			time.Sleep(waitForUp)
-			Expect(checker.GetDownServers(id)).To(BeEmpty())
-			checker.RemServer(id, "127.0.0.1")
-			Expect(checker.GetDownServers(id)).To(BeEmpty())
-			checker.AddServer(id, "127.0.0.1")
-			Expect(checker.GetDownServers(id)).To(ConsistOf("127.0.0.1"))
+			checker.RemHealthCheck(serviceID, localServer1)
+			checker.SetHealthCheck(serviceID, localServer1, check)
+			Expect(checker.IsDown(serviceID, localServer1)).To(BeTrue())
 			time.Sleep(waitForUp)
-			Expect(checker.GetDownServers(id)).To(BeEmpty())
+			Expect(checker.IsDown(serviceID, localServer1)).To(BeFalse())
 		})
 
 		It("should keep the server state if we set the same health check", func() {
-			checker.SetHealthCheck(id, check)
-			checker.AddServer(id, "127.0.0.1")
-			checker.AddServer(id, "localhost")
+			checker.SetHealthCheck(serviceID, localServer1, check)
 
 			time.Sleep(waitForUp)
-			downServers := checker.GetDownServers(id)
-			Expect(downServers).To(BeEmpty())
+			Expect(checker.IsDown(serviceID, localServer1)).To(BeFalse())
 
-			checker.SetHealthCheck(id, check)
-			Expect(checker.GetDownServers(id)).To(BeEmpty())
+			checker.SetHealthCheck(serviceID, localServer1, check)
+			Expect(checker.IsDown(serviceID, localServer1)).To(BeFalse())
 		})
 
 		It("should be able to update the health check", func() {
-			checker.SetHealthCheck(id, check)
-			checker.AddServer(id, "127.0.0.1")
-			checker.AddServer(id, "localhost")
+			checker.SetHealthCheck(serviceID, localServer1, check)
 
 			time.Sleep(waitForUp)
-			downServers := checker.GetDownServers(id)
-			Expect(downServers).To(BeEmpty())
+			Expect(checker.IsDown(serviceID, localServer1)).To(BeFalse())
 
-			check2 := proto.Clone(check).(*types.VirtualService_HealthCheck)
+			check2 := proto.Clone(check).(*types.RealServer_HealthCheck)
 			check2.DownThreshold = 1
 			check2.Endpoint = &wrappers.StringValue{Value: "http://localhost:99999/nowhere"}
-			checker.SetHealthCheck(id, check2)
-			Expect(checker.GetDownServers(id)).To(BeEmpty(), "nothing should change immediately after setting check")
+			checker.SetHealthCheck(serviceID, localServer1, check2)
+			Expect(checker.IsDown(serviceID, localServer1)).To(BeFalse(), "nothing should change immediately after setting check")
 
 			// wait one period, since down threshold is 1 now
 			time.Sleep(period + timeout)
-			Expect(checker.GetDownServers(id)).To(ConsistOf("127.0.0.1", "localhost"))
+			Expect(checker.IsDown(serviceID, localServer1)).To(BeTrue())
 		})
 	})
 
@@ -243,69 +197,41 @@ var _ = Describe("HealthChecks", func() {
 		})
 
 		It("should list server in down IPs", func() {
-			checker.SetHealthCheck(id, check)
-			checker.AddServer(id, "localhost")
-			checker.AddServer(id, "127.0.0.1")
+			checker.SetHealthCheck(serviceID, localServer1, check)
+			checker.SetHealthCheck(serviceID, localServer2, check)
 
 			time.Sleep(waitForDown)
-			downServers := checker.GetDownServers(id)
-
-			Expect(downServers).To(ConsistOf("localhost", "127.0.0.1"))
-		})
-
-		It("should not list server as down if removed", func() {
-			checker.SetHealthCheck(id, check)
-			checker.AddServer(id, "127.0.0.1")
-
-			time.Sleep(waitForDown)
-			checker.RemServer(id, "127.0.0.1")
-			time.Sleep(waitForDown)
-			downServers := checker.GetDownServers(id)
-
-			Expect(downServers).To(BeEmpty())
+			Expect(checker.IsDown(serviceID, localServer1)).To(BeTrue())
+			Expect(checker.IsDown(serviceID, localServer2)).To(BeTrue())
 		})
 
 		It("can transition to up and back down", func() {
-			checker.SetHealthCheck(id, check)
-			checker.AddServer(id, "127.0.0.1")
+			checker.SetHealthCheck(serviceID, localServer1, check)
 			time.Sleep(waitForDown)
+			Expect(checker.IsDown(serviceID, localServer1)).To(BeTrue())
 
 			setServerStatus(http.StatusOK)
 			time.Sleep(waitForUp)
-			Expect(checker.GetDownServers(id)).To(BeEmpty())
+			Expect(checker.IsDown(serviceID, localServer1)).To(BeFalse())
 
 			setServerStatus(http.StatusInternalServerError)
 			time.Sleep(waitForDown)
-			Expect(checker.GetDownServers(id)).To(ConsistOf("127.0.0.1"))
+			Expect(checker.IsDown(serviceID, localServer1)).To(BeTrue())
 		})
 
-		It("should no longer report down after removing health check", func() {
-			checker.SetHealthCheck(id, check)
-			checker.AddServer(id, "127.0.0.1")
+		It("should no longer report down after disabling health check", func() {
+			checker.SetHealthCheck(serviceID, localServer1, check)
 			time.Sleep(waitForDown)
-			Expect(checker.GetDownServers(id)).To(ConsistOf("127.0.0.1"))
+			Expect(checker.IsDown(serviceID, localServer1)).To(BeTrue())
 
 			By("removing the health check", func() {
-				checker.SetHealthCheck(id, &types.VirtualService_HealthCheck{})
-				Expect(checker.GetDownServers(id)).To(BeEmpty())
-			})
-
-			By("adding another server", func() {
-				checker.AddServer(id, "localhost")
-				time.Sleep(waitForDown)
-				Expect(checker.GetDownServers(id)).To(BeEmpty())
-			})
-
-			By("removing a server", func() {
-				checker.RemServer(id, "127.0.0.1")
-				time.Sleep(waitForDown)
-				Expect(checker.GetDownServers(id)).To(BeEmpty())
+				checker.SetHealthCheck(serviceID, localServer1, &types.RealServer_HealthCheck{})
+				Expect(checker.IsDown(serviceID, localServer1)).To(BeFalse())
 			})
 
 			By("re-adding the health check", func() {
-				checker.SetHealthCheck(id, check)
-				time.Sleep(waitForDown)
-				Expect(checker.GetDownServers(id)).To(ConsistOf("localhost"))
+				checker.SetHealthCheck(serviceID, localServer1, check)
+				Expect(checker.IsDown(serviceID, localServer1)).To(BeTrue())
 			})
 		})
 	})
