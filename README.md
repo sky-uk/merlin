@@ -1,4 +1,4 @@
-_Note_: This project is under development and not ready yet for use.
+[![build](https://travis-ci.org/sky-uk/merlin.svg?branch=master)](https://travis-ci.org/sky-uk/merlin)
 
 # merlin
 
