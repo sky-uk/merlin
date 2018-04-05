@@ -102,6 +102,17 @@ var _ = Describe("Meradm", func() {
 
 		Context("add a server", func() {
 			It("succeeds", func() {
+				meradm("server", "add", "service1", "172.16.1.1:555", "-w=2", "-f=masq",
+					"--health-endpoint=http://:556/health", "--health-period=5s", "--health-timeout=1s",
+					"--health-up=2", "--health-down=1")
+
+				out := meradmList()
+
+				Expect(out).To(ContainElement(MatchRegexp(`.*172.16.1.1:555.*MASQ.*2.*`)))
+				Expect(out).To(ContainElement(MatchRegexp(`http://:556/health.*5s.*1s.*2/1`)))
+			})
+
+			It("succeeds without health check provided", func() {
 				meradm("server", "add", "service1", "172.16.1.1:555", "-w=2", "-f=masq")
 
 				out := meradmList()
@@ -119,15 +130,19 @@ var _ = Describe("Meradm", func() {
 		})
 
 		It("can edit a server", func() {
-			meradm("server", "add", "service1", "172.16.1.1:555", "-w=2", "-f=masq")
+			meradm("server", "add", "service1", "172.16.1.1:555", "-w=2", "-f=masq",
+				"--health-endpoint=http://:556/health", "--health-period=5s", "--health-timeout=1s",
+				"--health-up=2", "--health-down=1")
 			meradm("server", "edit", "service1", "172.16.1.1:555", "-w=5")
 			meradm("server", "edit", "service1", "172.16.1.1:555", "-f=route")
+			meradm("server", "edit", "service1", "172.16.1.1:555", "--health-period=10s")
 
 			out := meradmList()
 
 			Expect(out).To(ContainElement(MatchRegexp(`.*172.16.1.1:555.*ROUTE.*5.*`)))
 			Expect(out).ToNot(ContainElement(MatchRegexp(`.*MASQ.*`)))
 			Expect(out).ToNot(ContainElement(MatchRegexp(`.* 2 .*`)))
+			Expect(out).To(ContainElement(MatchRegexp(`http://:556/health.*10s.*1s.*2/1`)))
 		})
 
 		It("can delete a server", func() {
@@ -154,19 +169,7 @@ var _ = Describe("Meradm", func() {
 			Expect(err).To(HaveOccurred())
 		})
 
-		It("can set a healthcheck", func() {
-			meradm("server", "add", "service1", "172.16.1.1:555", "-f=masq", "-w=1",
-				"--health-endpoint=http://:556/health", "--health-period=5s", "--health-timeout=1s",
-				"--health-up=2", "--health-down=1")
-			// make sure we can edit individual parts of the health check
-			meradm("server", "edit", "service1", "172.16.1.1:555", "--health-period=10s")
-
-			out := meradmList()
-
-			Expect(out).To(ContainElement(MatchRegexp(`http://:556/health.*10s.*1s.*2/1`)))
-		})
-
-		It("can remove a healthcheck", func() {
+		It("can disable a healthcheck", func() {
 			meradm("server", "add", "service1", "172.16.1.1:555", "-f=masq", "-w=1",
 				"--health-endpoint=http://:556/health", "--health-period=5s", "--health-timeout=1s",
 				"--health-up=2", "--health-down=1")
