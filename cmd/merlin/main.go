@@ -19,7 +19,6 @@ import (
 
 	"context"
 
-	"github.com/mqliang/libipvs"
 	"github.com/onrik/logrus/filename"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
@@ -73,6 +72,7 @@ func main() {
 
 type srv struct {
 	grpcServer      *grpc.Server
+	ipvs            ipvs.IPVS
 	reconciler      reconciler.Reconciler
 	subscribeStopCh chan struct{}
 }
@@ -94,12 +94,12 @@ func (s *srv) Start() {
 	}
 
 	if reconcile {
-		h, err := libipvs.New()
+		ipvs, err := ipvs.New()
 		if err != nil {
 			log.Fatalf("Unable to init IPVS: %v", err)
 		}
-		ipvs := ipvs.New(h)
 
+		s.ipvs = ipvs
 		s.reconciler = reconciler.New(reconcileSyncPeriod, etcdStore, ipvs)
 	} else {
 		s.reconciler = reconciler.NewStub()
@@ -132,6 +132,7 @@ func (s *srv) Start() {
 func (s *srv) Stop() error {
 	close(s.subscribeStopCh)
 	s.reconciler.Stop()
+	s.ipvs.Close()
 	s.grpcServer.GracefulStop()
 	log.Infof("Stopped merlin")
 	return nil

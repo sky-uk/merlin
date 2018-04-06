@@ -38,6 +38,12 @@
   version = "v1.1.0"
 
 [[projects]]
+  branch = "master"
+  name = "github.com/docker/libnetwork"
+  packages = ["ipvs"]
+  revision = "5c1218c956c99f3365711974e300087810c31379"
+
+[[projects]]
   name = "github.com/gogo/protobuf"
   packages = ["proto"]
   revision = "1adfc126b41513cc696b209667c8656ea7aac67c"
@@ -58,12 +64,6 @@
   version = "v1.0.0"
 
 [[projects]]
-  branch = "master"
-  name = "github.com/hkwi/nlgo"
-  packages = ["."]
-  revision = "dbae43f4fc47bf868bca3cc3c1ea2954c2059842"
-
-[[projects]]
   name = "github.com/inconshreveable/mousetrap"
   packages = ["."]
   revision = "76626ae9c91c4f2a10f34cad8ce83ea42c93bb75"
@@ -74,12 +74,6 @@
   packages = ["pbutil"]
   revision = "3247c84500bff8d9fb6d579d800f20b3e091582c"
   version = "v1.0.0"
-
-[[projects]]
-  branch = "master"
-  name = "github.com/mqliang/libipvs"
-  packages = ["."]
-  revision = "38f5f7e6361787f0007b825811aa732d83888197"
 
 [[projects]]
   branch = "master"
@@ -131,12 +125,6 @@
   ]
   revision = "003f63b7f4cff3fc95357005358af2de0f5fe152"
   version = "v1.3.0"
-
-[[projects]]
-  name = "github.com/pkg/errors"
-  packages = ["."]
-  revision = "645ef00459ed84a119197bfb8d8205042c6df63d"
-  version = "v0.8.0"
 
 [[projects]]
   name = "github.com/pmezard/go-difflib"
@@ -218,6 +206,20 @@
   packages = ["codec"]
   revision = "9831f2c3ac1068a78f50999a30db84270f647af6"
   version = "v1.1"
+
+[[projects]]
+  name = "github.com/vishvananda/netlink"
+  packages = [
+    ".",
+    "nl"
+  ]
+  revision = "b2de5d10e38ecce8607e6b438b6d174f389a004e"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/vishvananda/netns"
+  packages = ["."]
+  revision = "be1fbeda19366dea804f00efff2dd73a1642fdcc"
 
 [[projects]]
   branch = "master"
@@ -328,6 +330,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "6f8dee594cbfacb5013550e97c034ab9c12ad02a664dcb543656ecc2e3f7e2da"
+  inputs-digest = "41ebad0811a4c0bb6127dabb4c6f8416e0a238cb59bd014e2ba7bbabe801ecdf"
   solver-name = "gps-cdcl"
   solver-version = 1

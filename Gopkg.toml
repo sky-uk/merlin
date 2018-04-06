@@ -24,6 +24,17 @@
 #   go-tests = true
 #   unused-packages = true
 
+# To constrain the version for docker/libnetwork.
+required = ["github.com/vishvananda/netlink"]
+
+# See https://github.com/docker/libnetwork/blob/master/vendor.conf.
+[[constraint]]
+  name = "github.com/vishvananda/netlink"
+  revision = "b2de5d10e38ecce8607e6b438b6d174f389a004e"
+
+[[constraint]]
+  name = "github.com/docker/libnetwork"
+  branch = "master"
 
 [[constraint]]
   name = "github.com/sirupsen/logrus"
@@ -32,10 +43,6 @@
 [[constraint]]
   name = "github.com/golang/protobuf"
   version = "1.0.0"
-
-[[constraint]]
-  branch = "master"
-  name = "github.com/mqliang/libipvs"
 
 [[constraint]]
   name = "github.com/stretchr/testify"

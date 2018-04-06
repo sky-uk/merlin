@@ -377,6 +377,10 @@ type ipvsMock struct {
 	mock.Mock
 }
 
+func (i *ipvsMock) Close() {
+	i.Called()
+}
+
 func (i *ipvsMock) AddService(svc *types.VirtualService) error {
 	args := i.Called(svc)
 	return args.Error(0)

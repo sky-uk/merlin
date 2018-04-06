@@ -1,3 +1,7 @@
+# 0.1.2
+
+* Swap to github.com/docker/libnetwork for IPVS, to improve stability.
+
 # 0.1.1
 
 * Fix panics when updating with nil fields.
