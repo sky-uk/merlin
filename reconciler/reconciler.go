@@ -112,6 +112,7 @@ func (r *reconciler) Sync() {
 
 func (r *reconciler) reconcile() {
 	log.Debug("Starting reconcile")
+	defer log.Debug("Finished reconcile")
 	ctx, cancel := context.WithTimeout(context.Background(), reconcilerTimeout)
 	defer cancel()
 
@@ -229,5 +230,4 @@ func (r *reconciler) reconcile() {
 			}
 		}
 	}
-	log.Debug("Finished reconcile")
 }
