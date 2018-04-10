@@ -177,10 +177,10 @@ func validateServer(server *types.RealServer) error {
 		if u.Port() == "" {
 			return status.Errorf(codes.InvalidArgument, "health check endpoint is missing port")
 		}
-		if server.HealthCheck.Period.Seconds == 0 && server.HealthCheck.Period.Nanos == 0 {
+		if server.HealthCheck.GetPeriod().GetSeconds() == 0 && server.HealthCheck.GetPeriod().GetNanos() == 0 {
 			return status.Errorf(codes.InvalidArgument, "health check period is required")
 		}
-		if server.HealthCheck.Timeout.Seconds == 0 && server.HealthCheck.Timeout.Nanos == 0 {
+		if server.HealthCheck.GetTimeout().GetSeconds() == 0 && server.HealthCheck.GetPeriod().GetNanos() == 0 {
 			return status.Errorf(codes.InvalidArgument, "health check timeout is required")
 		}
 		if server.HealthCheck.DownThreshold == 0 {
@@ -208,7 +208,8 @@ func (s *server) CreateServer(ctx context.Context, server *types.RealServer) (*e
 		return emptyResponse, fmt.Errorf("failed to check service %s exists: %v", server.ServiceID, err)
 	}
 	if svc == nil {
-		return emptyResponse, status.Errorf(codes.NotFound, "service does not exist, can't create server %v", server)
+		return emptyResponse, status.Errorf(codes.NotFound, "service %q does not exist, can't create server: %v",
+			server.ServiceID, server)
 	}
 
 	prev, err := s.store.GetServer(ctx, server.ServiceID, server.Key)
@@ -240,8 +241,8 @@ func (s *server) UpdateServer(ctx context.Context, update *types.RealServer) (*e
 	next := proto.Clone(prev).(*types.RealServer)
 	proto.Merge(next.Config, update.Config)
 	proto.Merge(next.HealthCheck, update.HealthCheck)
-	// force update of endpoint if set
-	if update.HealthCheck.Endpoint != nil {
+	// force update of endpoint if set - so users can disable by setting a nil value on the endpoint
+	if update.GetHealthCheck().GetEndpoint() != nil {
 		next.HealthCheck.Endpoint = update.HealthCheck.Endpoint
 	}
 

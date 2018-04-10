@@ -10,6 +10,7 @@ import (
 	"os"
 
 	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/wrappers"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
@@ -77,10 +78,8 @@ var _ = Describe("API", func() {
 			status, ok := status.FromError(err)
 
 			Expect(ok).To(BeTrue(), "got grpc status error")
-			if ok {
-				Expect(status.Code()).To(Equal(codes.InvalidArgument),
-					"expected InvalidArgument, but got %v", err)
-			}
+			Expect(status.Code()).To(Equal(codes.InvalidArgument),
+				"expected InvalidArgument, but got %v", err)
 		},
 			Entry("empty service", &types.VirtualService{}),
 			Entry("missing id", &types.VirtualService{
@@ -170,10 +169,8 @@ var _ = Describe("API", func() {
 			status, ok := status.FromError(err)
 
 			Expect(ok).To(BeTrue(), "got grpc status error")
-			if ok {
-				Expect(status.Code()).To(Equal(codes.AlreadyExists),
-					"expected AlreadyExists, but got %v", err)
-			}
+			Expect(status.Code()).To(Equal(codes.AlreadyExists),
+				"expected AlreadyExists, but got %v", err)
 		})
 	})
 
@@ -189,10 +186,8 @@ var _ = Describe("API", func() {
 			status, ok := status.FromError(err)
 
 			Expect(ok).To(BeTrue(), "got grpc status error")
-			if ok {
-				Expect(status.Code()).To(Equal(codes.NotFound),
-					"expected NotFound, but got %v", err)
-			}
+			Expect(status.Code()).To(Equal(codes.NotFound),
+				"expected NotFound, but got %v", err)
 		})
 	})
 
@@ -214,22 +209,20 @@ var _ = Describe("API", func() {
 			}
 		)
 
-		Describe("CreateServer", func() {
+		BeforeEach(func() {
+			_, err := client.CreateService(ctx, service)
+			Expect(err).ToNot(HaveOccurred())
+		})
 
-			BeforeEach(func() {
-				_, err := client.CreateService(ctx, service)
-				Expect(err).ToNot(HaveOccurred())
-			})
+		Describe("CreateServer", func() {
 
 			DescribeTable("field validation", func(server *types.RealServer) {
 				_, err := client.CreateServer(ctx, server)
 				status, ok := status.FromError(err)
 
 				Expect(ok).To(BeTrue(), "got grpc status error")
-				if ok {
-					Expect(status.Code()).To(Equal(codes.InvalidArgument),
-						"expected InvalidArgument, but got %v", err)
-				}
+				Expect(status.Code()).To(Equal(codes.InvalidArgument),
+					"expected InvalidArgument, but got %v", err)
 			},
 				Entry("empty server", &types.RealServer{}),
 				Entry("missing serviceID", &types.RealServer{
@@ -288,6 +281,62 @@ var _ = Describe("API", func() {
 						Forward: types.ForwardMethod_ROUTE,
 					},
 				}),
+				Entry("invalid health check scheme", &types.RealServer{
+					ServiceID: service.Id,
+					Key:       validServerKey,
+					Config:    validServerConfig,
+					HealthCheck: &types.RealServer_HealthCheck{
+						Endpoint:      &wrappers.StringValue{Value: "bogus://:556/health"},
+						Period:        ptypes.DurationProto(time.Second),
+						Timeout:       ptypes.DurationProto(time.Second),
+						DownThreshold: 1,
+						UpThreshold:   1,
+					},
+				}),
+				Entry("missing health check period", &types.RealServer{
+					ServiceID: service.Id,
+					Key:       validServerKey,
+					Config:    validServerConfig,
+					HealthCheck: &types.RealServer_HealthCheck{
+						Endpoint:      &wrappers.StringValue{Value: "http://:556/health"},
+						Timeout:       ptypes.DurationProto(time.Second),
+						DownThreshold: 1,
+						UpThreshold:   1,
+					},
+				}),
+				Entry("missing health check timeout", &types.RealServer{
+					ServiceID: service.Id,
+					Key:       validServerKey,
+					Config:    validServerConfig,
+					HealthCheck: &types.RealServer_HealthCheck{
+						Endpoint:      &wrappers.StringValue{Value: "http://:556/health"},
+						Period:        ptypes.DurationProto(time.Second),
+						DownThreshold: 1,
+						UpThreshold:   1,
+					},
+				}),
+				Entry("missing health check down threshold", &types.RealServer{
+					ServiceID: service.Id,
+					Key:       validServerKey,
+					Config:    validServerConfig,
+					HealthCheck: &types.RealServer_HealthCheck{
+						Endpoint:    &wrappers.StringValue{Value: "http://:556/health"},
+						Period:      ptypes.DurationProto(time.Second),
+						Timeout:     ptypes.DurationProto(time.Second),
+						UpThreshold: 1,
+					},
+				}),
+				Entry("missing health check up threshold", &types.RealServer{
+					ServiceID: service.Id,
+					Key:       validServerKey,
+					Config:    validServerConfig,
+					HealthCheck: &types.RealServer_HealthCheck{
+						Endpoint:      &wrappers.StringValue{Value: "http://:556/health"},
+						Period:        ptypes.DurationProto(time.Second),
+						Timeout:       ptypes.DurationProto(time.Second),
+						DownThreshold: 1,
+					},
+				}),
 			)
 
 			It("should return codes.AlreadyExists if already exists", func() {
@@ -305,10 +354,8 @@ var _ = Describe("API", func() {
 				status, ok := status.FromError(err)
 
 				Expect(ok).To(BeTrue(), "got grpc status error")
-				if ok {
-					Expect(status.Code()).To(Equal(codes.AlreadyExists),
-						"expected AlreadyExists, but got %v", err)
-				}
+				Expect(status.Code()).To(Equal(codes.AlreadyExists),
+					"expected AlreadyExists, but got %v", err)
 			})
 
 			It("should return codes.NotFound if service doesn't exist", func() {
@@ -322,31 +369,118 @@ var _ = Describe("API", func() {
 				status, ok := status.FromError(err)
 
 				Expect(ok).To(BeTrue(), "got grpc status error")
-				if ok {
-					Expect(status.Code()).To(Equal(codes.NotFound),
-						"expected NotFound, but got %v", err)
-				}
-
+				Expect(status.Code()).To(Equal(codes.NotFound),
+					"expected NotFound, but got %v", err)
 			})
 		})
 
 		Describe("UpdateServer", func() {
 
-			It("should return codes.NotFound if doesn't exist", func() {
+			// test all invalid / missing fields (missing key, missing service, missing server)
+			DescribeTable("should return codes.NotFound if doesn't exist", func(update *types.RealServer) {
 				server := &types.RealServer{
-					ServiceID: "service1",
+					ServiceID: service.Id,
 					Key:       validServerKey,
 					Config:    validServerConfig,
 				}
-				_, err := client.UpdateServer(ctx, server)
+				_, err := client.CreateServer(ctx, server)
+				Expect(err).ToNot(HaveOccurred())
+
+				_, err = client.UpdateServer(ctx, update)
 				status, ok := status.FromError(err)
 
 				Expect(ok).To(BeTrue(), "got grpc status error")
-				if ok {
-					Expect(status.Code()).To(Equal(codes.NotFound),
-						"expected NotFound, but got %v", err)
+				Expect(status.Code()).To(Equal(codes.NotFound),
+					"expected NotFound, but got %v", err)
+			},
+				Entry("no existing server", &types.RealServer{
+					ServiceID: service.Id,
+					Key: &types.RealServer_Key{
+						Ip:   "172.16.20.5",
+						Port: 7474,
+					},
+					Config: &types.RealServer_Config{Forward: types.ForwardMethod_MASQ},
+				}),
+				Entry("no existing service", &types.RealServer{
+					ServiceID: "nonexistent_service",
+					Key:       validServerKey,
+					Config:    &types.RealServer_Config{Forward: types.ForwardMethod_MASQ},
+				}),
+				Entry("missing key", &types.RealServer{
+					ServiceID: service.Id,
+					Config:    &types.RealServer_Config{Forward: types.ForwardMethod_MASQ},
+				}),
+			)
+
+			DescribeTable("should be able to update individual fields", func(update *types.RealServer) {
+				server := &types.RealServer{
+					ServiceID: service.Id,
+					Key:       validServerKey,
+					Config:    validServerConfig,
+					HealthCheck: &types.RealServer_HealthCheck{
+						Endpoint:      &wrappers.StringValue{Value: "http://:556/health"},
+						Period:        ptypes.DurationProto(time.Second),
+						Timeout:       ptypes.DurationProto(time.Second),
+						DownThreshold: 1,
+						UpThreshold:   1,
+					},
 				}
-			})
+				_, err := client.CreateServer(ctx, server)
+				Expect(err).ToNot(HaveOccurred())
+
+				_, err = client.UpdateServer(ctx, update)
+				Expect(err).ToNot(HaveOccurred())
+			},
+				Entry("change weight", &types.RealServer{
+					ServiceID: service.Id,
+					Key:       validServerKey,
+					Config: &types.RealServer_Config{
+						Weight: &wrappers.UInt32Value{4},
+					},
+				}),
+				Entry("change forward", &types.RealServer{
+					ServiceID: service.Id,
+					Key:       validServerKey,
+					Config: &types.RealServer_Config{
+						Forward: types.ForwardMethod_MASQ,
+					},
+				}),
+				Entry("change health check endpoint", &types.RealServer{
+					ServiceID: service.Id,
+					Key:       validServerKey,
+					HealthCheck: &types.RealServer_HealthCheck{
+						Endpoint: &wrappers.StringValue{Value: "http://:999/health2"},
+					},
+				}),
+				Entry("change health check period", &types.RealServer{
+					ServiceID: service.Id,
+					Key:       validServerKey,
+					HealthCheck: &types.RealServer_HealthCheck{
+						Period: ptypes.DurationProto(time.Minute),
+					},
+				}),
+				Entry("change health check timeout", &types.RealServer{
+					ServiceID: service.Id,
+					Key:       validServerKey,
+					HealthCheck: &types.RealServer_HealthCheck{
+						Timeout: ptypes.DurationProto(time.Minute),
+					},
+				}),
+				Entry("change health check up threshold", &types.RealServer{
+					ServiceID: service.Id,
+					Key:       validServerKey,
+					HealthCheck: &types.RealServer_HealthCheck{
+						UpThreshold: 5,
+					},
+				}),
+				Entry("change health check down threshold", &types.RealServer{
+					ServiceID: service.Id,
+					Key:       validServerKey,
+					HealthCheck: &types.RealServer_HealthCheck{
+						DownThreshold: 4,
+					},
+				}),
+			)
 		})
 	})
 })

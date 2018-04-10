@@ -56,7 +56,7 @@ func New(period time.Duration, store Store, ipvs ipvs.IPVS) Reconciler {
 }
 
 func (r *reconciler) Start() error {
-	log.Debug("Starting reconciler")
+	log.Debug("Starting reconciler loop")
 	go func() {
 		for {
 			t := time.NewTimer(r.period)
@@ -66,7 +66,7 @@ func (r *reconciler) Start() error {
 			case <-r.syncCh:
 				r.reconcile()
 			case <-r.stopCh:
-				log.Debug("Stopped reconciler")
+				log.Debug("Stopped reconciler loop")
 				return
 			}
 		}
@@ -111,6 +111,8 @@ func (r *reconciler) Sync() {
 }
 
 func (r *reconciler) reconcile() {
+	log.Debug("Starting reconcile")
+	defer log.Debug("Finished reconcile")
 	ctx, cancel := context.WithTimeout(context.Background(), reconcilerTimeout)
 	defer cancel()
 

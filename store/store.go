@@ -165,6 +165,10 @@ func unmarshalServer(raw string) *types.RealServer {
 }
 
 func (s *store) GetServer(ctx context.Context, serviceID string, key *types.RealServer_Key) (*types.RealServer, error) {
+	if key == nil {
+		// can't retrieve server without a key
+		return nil, nil
+	}
 	resp, err := s.kapi.Get(ctx, s.serverKey(serviceID, key), getOpts)
 	if client.IsKeyNotFound(err) {
 		return nil, nil
