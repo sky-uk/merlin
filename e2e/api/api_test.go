@@ -78,10 +78,8 @@ var _ = Describe("API", func() {
 			status, ok := status.FromError(err)
 
 			Expect(ok).To(BeTrue(), "got grpc status error")
-			if ok {
-				Expect(status.Code()).To(Equal(codes.InvalidArgument),
-					"expected InvalidArgument, but got %v", err)
-			}
+			Expect(status.Code()).To(Equal(codes.InvalidArgument),
+				"expected InvalidArgument, but got %v", err)
 		},
 			Entry("empty service", &types.VirtualService{}),
 			Entry("missing id", &types.VirtualService{
@@ -171,10 +169,8 @@ var _ = Describe("API", func() {
 			status, ok := status.FromError(err)
 
 			Expect(ok).To(BeTrue(), "got grpc status error")
-			if ok {
-				Expect(status.Code()).To(Equal(codes.AlreadyExists),
-					"expected AlreadyExists, but got %v", err)
-			}
+			Expect(status.Code()).To(Equal(codes.AlreadyExists),
+				"expected AlreadyExists, but got %v", err)
 		})
 	})
 
@@ -190,10 +186,8 @@ var _ = Describe("API", func() {
 			status, ok := status.FromError(err)
 
 			Expect(ok).To(BeTrue(), "got grpc status error")
-			if ok {
-				Expect(status.Code()).To(Equal(codes.NotFound),
-					"expected NotFound, but got %v", err)
-			}
+			Expect(status.Code()).To(Equal(codes.NotFound),
+				"expected NotFound, but got %v", err)
 		})
 	})
 
@@ -227,10 +221,8 @@ var _ = Describe("API", func() {
 				status, ok := status.FromError(err)
 
 				Expect(ok).To(BeTrue(), "got grpc status error")
-				if ok {
-					Expect(status.Code()).To(Equal(codes.InvalidArgument),
-						"expected InvalidArgument, but got %v", err)
-				}
+				Expect(status.Code()).To(Equal(codes.InvalidArgument),
+					"expected InvalidArgument, but got %v", err)
 			},
 				Entry("empty server", &types.RealServer{}),
 				Entry("missing serviceID", &types.RealServer{
@@ -362,10 +354,8 @@ var _ = Describe("API", func() {
 				status, ok := status.FromError(err)
 
 				Expect(ok).To(BeTrue(), "got grpc status error")
-				if ok {
-					Expect(status.Code()).To(Equal(codes.AlreadyExists),
-						"expected AlreadyExists, but got %v", err)
-				}
+				Expect(status.Code()).To(Equal(codes.AlreadyExists),
+					"expected AlreadyExists, but got %v", err)
 			})
 
 			It("should return codes.NotFound if service doesn't exist", func() {
@@ -379,11 +369,8 @@ var _ = Describe("API", func() {
 				status, ok := status.FromError(err)
 
 				Expect(ok).To(BeTrue(), "got grpc status error")
-				if ok {
-					Expect(status.Code()).To(Equal(codes.NotFound),
-						"expected NotFound, but got %v", err)
-				}
-
+				Expect(status.Code()).To(Equal(codes.NotFound),
+					"expected NotFound, but got %v", err)
 			})
 		})
 
@@ -403,10 +390,8 @@ var _ = Describe("API", func() {
 				status, ok := status.FromError(err)
 
 				Expect(ok).To(BeTrue(), "got grpc status error")
-				if ok {
-					Expect(status.Code()).To(Equal(codes.NotFound),
-						"expected NotFound, but got %v", err)
-				}
+				Expect(status.Code()).To(Equal(codes.NotFound),
+					"expected NotFound, but got %v", err)
 			},
 				Entry("no existing server", &types.RealServer{
 					ServiceID: service.Id,
