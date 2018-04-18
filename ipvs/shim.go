@@ -8,43 +8,14 @@ import (
 
 	"net"
 
-	"sort"
-
+	"github.com/docker/libnetwork/ipvs"
 	"github.com/golang/protobuf/ptypes/wrappers"
-	"github.com/mqliang/libipvs"
-	log "github.com/sirupsen/logrus"
 	"github.com/sky-uk/merlin/types"
 )
 
-var (
-	schedulerFlags = map[string]uint32{
-		"flag-1": libipvs.IP_VS_SVC_F_SCHED1,
-		"flag-2": libipvs.IP_VS_SVC_F_SCHED2,
-		"flag-3": libipvs.IP_VS_SVC_F_SCHED3,
-	}
-	schedulerFlagsInverted map[uint32]string
-
-	forwardingMethods = map[types.ForwardMethod]libipvs.FwdMethod{
-		types.ForwardMethod_ROUTE:  libipvs.IP_VS_CONN_F_DROUTE,
-		types.ForwardMethod_MASQ:   libipvs.IP_VS_CONN_F_MASQ,
-		types.ForwardMethod_TUNNEL: libipvs.IP_VS_CONN_F_TUNNEL,
-	}
-	forwardingMethodsInverted map[libipvs.FwdMethod]types.ForwardMethod
-)
-
-func init() {
-	schedulerFlagsInverted = make(map[uint32]string)
-	for k, v := range schedulerFlags {
-		schedulerFlagsInverted[v] = k
-	}
-	forwardingMethodsInverted = make(map[libipvs.FwdMethod]types.ForwardMethod)
-	for k, v := range forwardingMethods {
-		forwardingMethodsInverted[v] = k
-	}
-}
-
 // IPVS shim.
 type IPVS interface {
+	Close()
 	AddService(svc *types.VirtualService) error
 	UpdateService(svc *types.VirtualService) error
 	DeleteService(key *types.VirtualService_Key) error
@@ -55,77 +26,64 @@ type IPVS interface {
 	ListServers(key *types.VirtualService_Key) ([]*types.RealServer, error)
 }
 
+// ipvsHandle for libnetwork/ipvs.
+type ipvsHandle interface {
+	Close()
+	GetServices() ([]*ipvs.Service, error)
+	NewService(*ipvs.Service) error
+	UpdateService(*ipvs.Service) error
+	DelService(*ipvs.Service) error
+	GetDestinations(*ipvs.Service) ([]*ipvs.Destination, error)
+	NewDestination(*ipvs.Service, *ipvs.Destination) error
+	UpdateDestination(*ipvs.Service, *ipvs.Destination) error
+	DelDestination(*ipvs.Service, *ipvs.Destination) error
+}
+
 type shim struct {
-	handle libipvs.IPVSHandle
+	handle ipvsHandle
 }
 
-// New IPVS shim.
-func New(handle libipvs.IPVSHandle) IPVS {
+// New IPVS shim. This creates an underlying netlink socket. Call Close() to release the associated resources.
+func New() (IPVS, error) {
+	h, err := ipvs.New("/")
+	if err != nil {
+		return nil, fmt.Errorf("unable to init ipvs: %v", err)
+	}
 	return &shim{
-		handle: handle,
-	}
+		handle: h,
+	}, nil
 }
 
-func toIPVSProtocol(protocol types.Protocol) (libipvs.Protocol, error) {
-	switch protocol {
-	case types.Protocol_TCP:
-		return libipvs.Protocol(syscall.IPPROTO_TCP), nil
-	case types.Protocol_UDP:
-		return libipvs.Protocol(syscall.IPPROTO_UDP), nil
-	default:
-		return 0, fmt.Errorf("unknown protocol %q", protocol)
-	}
+func (s *shim) Close() {
+	s.handle.Close()
 }
 
-func fromIPVSProtocol(protocol libipvs.Protocol) (types.Protocol, error) {
-	switch protocol {
-	case syscall.IPPROTO_TCP:
-		return types.Protocol_TCP, nil
-	case syscall.IPPROTO_UDP:
-		return types.Protocol_UDP, nil
-	default:
-		return 0, fmt.Errorf("unknown protocol %q", protocol)
-	}
-}
-
-func initIPVSService(key *types.VirtualService_Key) (*libipvs.Service, error) {
-	protNum, err := toIPVSProtocol(key.Protocol)
+func createHandleServiceKey(key *types.VirtualService_Key) (*ipvs.Service, error) {
+	protNum, err := toProtocolBits(key.Protocol)
 	if err != nil {
 		return nil, err
 	}
-	svc := &libipvs.Service{
+	svc := &ipvs.Service{
 		Address:       net.ParseIP(key.Ip),
-		Protocol:      libipvs.Protocol(protNum),
+		Protocol:      protNum,
 		Port:          uint16(key.Port),
 		AddressFamily: syscall.AF_INET,
 	}
 	return svc, nil
 }
 
-func createFlagbits(flags []string) (libipvs.Flags, error) {
-	var flagbits uint32
-	for _, flag := range flags {
-		if b, exists := schedulerFlags[flag]; exists {
-			flagbits |= b
-		} else {
-			log.Warnf("unknown scheduler flag %q, ignoring", flag)
-		}
+func createHandleService(svc *types.VirtualService) (*ipvs.Service, error) {
+	ipvsSvc, err := createHandleServiceKey(svc.Key)
+	if err != nil {
+		return nil, err
 	}
-	r := libipvs.Flags{
-		Flags: flagbits,
-		// set all bits to 1
-		Mask: ^uint32(0),
-	}
-	return r, nil
+	ipvsSvc.SchedName = svc.Config.Scheduler
+	ipvsSvc.Flags = toFlagBits(svc.Config.Flags)
+	return ipvsSvc, nil
 }
 
 func (s *shim) AddService(svc *types.VirtualService) error {
-	ipvsSvc, err := initIPVSService(svc.Key)
-	if err != nil {
-		return err
-	}
-	ipvsSvc.SchedName = svc.Config.Scheduler
-	ipvsSvc.Flags, err = createFlagbits(svc.Config.Flags)
+	ipvsSvc, err := createHandleService(svc)
 	if err != nil {
 		return err
 	}
@@ -133,12 +91,7 @@ func (s *shim) AddService(svc *types.VirtualService) error {
 }
 
 func (s *shim) UpdateService(svc *types.VirtualService) error {
-	ipvsSvc, err := initIPVSService(svc.Key)
-	if err != nil {
-		return err
-	}
-	ipvsSvc.SchedName = svc.Config.Scheduler
-	ipvsSvc.Flags, err = createFlagbits(svc.Config.Flags)
+	ipvsSvc, err := createHandleService(svc)
 	if err != nil {
 		return err
 	}
@@ -146,45 +99,34 @@ func (s *shim) UpdateService(svc *types.VirtualService) error {
 }
 
 func (s *shim) DeleteService(key *types.VirtualService_Key) error {
-	svc, err := initIPVSService(key)
+	svc, err := createHandleServiceKey(key)
 	if err != nil {
 		return err
 	}
 	return s.handle.DelService(svc)
 }
 
-func convertFlagbits(flagbits uint32) []string {
-	var flags []string
-	for f, v := range schedulerFlagsInverted {
-		if flagbits&f != 0 {
-			flags = append(flags, v)
-		}
-	}
-	sort.Strings(flags)
-	return flags
-}
-
 func (s *shim) ListServices() ([]*types.VirtualService, error) {
-	ipvsSvcs, err := s.handle.ListServices()
+	hServices, err := s.handle.GetServices()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to list services: %v", err)
 	}
 
 	var svcs []*types.VirtualService
-	for _, isvc := range ipvsSvcs {
-		prot, err := fromIPVSProtocol(isvc.Protocol)
+	for _, hSvc := range hServices {
+		protocol, err := fromProtocolBits(hSvc.Protocol)
 		if err != nil {
 			return nil, err
 		}
 		svc := &types.VirtualService{
 			Key: &types.VirtualService_Key{
-				Ip:       isvc.Address.String(),
-				Port:     uint32(isvc.Port),
-				Protocol: prot,
+				Ip:       hSvc.Address.String(),
+				Port:     uint32(hSvc.Port),
+				Protocol: protocol,
 			},
 			Config: &types.VirtualService_Config{
-				Scheduler: isvc.SchedName,
-				Flags:     convertFlagbits(isvc.Flags.Flags),
+				Scheduler: hSvc.SchedName,
+				Flags:     fromFlagBits(hSvc.Flags),
 			},
 		}
 		svcs = append(svcs, svc)
@@ -193,8 +135,8 @@ func (s *shim) ListServices() ([]*types.VirtualService, error) {
 	return svcs, nil
 }
 
-func createDest(server *types.RealServer, full bool) (*libipvs.Destination, error) {
-	dest := &libipvs.Destination{
+func createHandleDestination(server *types.RealServer, full bool) (*ipvs.Destination, error) {
+	dest := &ipvs.Destination{
 		Address:       net.ParseIP(server.Key.Ip),
 		Port:          uint16(server.Key.Port),
 		AddressFamily: syscall.AF_INET,
@@ -207,20 +149,30 @@ func createDest(server *types.RealServer, full bool) (*libipvs.Destination, erro
 		if !ok {
 			return nil, fmt.Errorf("invalid forwarding method %q", server.Config.Forward)
 		}
-		dest.FwdMethod = libipvs.FwdMethod(fwdbits)
+		dest.ConnectionFlags = fwdbits
 	}
 	if server.Config.Weight != nil {
-		dest.Weight = server.Config.Weight.Value
+		dest.Weight = int(server.Config.Weight.Value)
 	}
 	return dest, nil
 }
 
-func (s *shim) AddServer(key *types.VirtualService_Key, server *types.RealServer) error {
-	svc, err := initIPVSService(key)
+func createHandleServiceKeyAndDestination(key *types.VirtualService_Key, server *types.RealServer,
+	fullServer bool) (*ipvs.Service, *ipvs.Destination, error) {
+
+	svc, err := createHandleServiceKey(key)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	dest, err := createDest(server, true)
+	dest, err := createHandleDestination(server, fullServer)
+	if err != nil {
+		return nil, nil, err
+	}
+	return svc, dest, nil
+}
+
+func (s *shim) AddServer(key *types.VirtualService_Key, server *types.RealServer) error {
+	svc, dest, err := createHandleServiceKeyAndDestination(key, server, true)
 	if err != nil {
 		return err
 	}
@@ -228,11 +180,7 @@ func (s *shim) AddServer(key *types.VirtualService_Key, server *types.RealServer
 }
 
 func (s *shim) UpdateServer(key *types.VirtualService_Key, server *types.RealServer) error {
-	svc, err := initIPVSService(key)
-	if err != nil {
-		return err
-	}
-	dest, err := createDest(server, true)
+	svc, dest, err := createHandleServiceKeyAndDestination(key, server, true)
 	if err != nil {
 		return err
 	}
@@ -240,11 +188,7 @@ func (s *shim) UpdateServer(key *types.VirtualService_Key, server *types.RealSer
 }
 
 func (s *shim) DeleteServer(key *types.VirtualService_Key, server *types.RealServer) error {
-	svc, err := initIPVSService(key)
-	if err != nil {
-		return err
-	}
-	dest, err := createDest(server, false)
+	svc, dest, err := createHandleServiceKeyAndDestination(key, server, false)
 	if err != nil {
 		return err
 	}
@@ -252,21 +196,22 @@ func (s *shim) DeleteServer(key *types.VirtualService_Key, server *types.RealSer
 }
 
 func (s *shim) ListServers(key *types.VirtualService_Key) ([]*types.RealServer, error) {
-	svc, err := initIPVSService(key)
+	svc, err := createHandleServiceKey(key)
 	if err != nil {
 		return nil, err
 	}
 
-	dests, err := s.handle.ListDestinations(svc)
+	dests, err := s.handle.GetDestinations(svc)
 	if err != nil {
 		return nil, err
 	}
 
 	var servers []*types.RealServer
 	for _, dest := range dests {
-		fwd, ok := forwardingMethodsInverted[dest.FwdMethod]
+		fwdBits := dest.ConnectionFlags & ipvs.ConnectionFlagFwdMask
+		fwd, ok := forwardingMethodsInverted[fwdBits]
 		if !ok {
-			return nil, fmt.Errorf("unable to list backends, unexpected forward method %#x", dest.FwdMethod)
+			return nil, fmt.Errorf("unable to list backends, unexpected forward method bits %#x", fwdBits)
 		}
 		server := &types.RealServer{
 			Key: &types.RealServer_Key{
@@ -274,7 +219,7 @@ func (s *shim) ListServers(key *types.VirtualService_Key) ([]*types.RealServer, 
 				Port: uint32(dest.Port),
 			},
 			Config: &types.RealServer_Config{
-				Weight:  &wrappers.UInt32Value{Value: dest.Weight},
+				Weight:  &wrappers.UInt32Value{Value: uint32(dest.Weight)},
 				Forward: fwd,
 			},
 		}

@@ -1,16 +1,14 @@
 package ipvs
 
 import (
-	"reflect"
 	"testing"
 
 	"sort"
 
-	"github.com/mqliang/libipvs"
-
 	"net"
 	"syscall"
 
+	"github.com/docker/libnetwork/ipvs"
 	"github.com/golang/protobuf/ptypes/wrappers"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
@@ -25,19 +23,19 @@ func TestIPVS(t *testing.T) {
 }
 
 var (
-	ipvs     IPVS
-	hMock    *handlerMock
+	ipvsShim IPVS
+	hMock    *handleMock
 	svc      *types.VirtualService
-	hSvc     *libipvs.Service
-	hSvcKey  *libipvs.Service
+	hSvc     *ipvs.Service
+	hSvcKey  *ipvs.Service
 	server   *types.RealServer
-	hDest    *libipvs.Destination
-	hDestKey *libipvs.Destination
+	hDest    *ipvs.Destination
+	hDestKey *ipvs.Destination
 )
 
 var _ = BeforeEach(func() {
-	hMock = &handlerMock{}
-	ipvs = New(hMock)
+	hMock = &handleMock{}
+	ipvsShim = &shim{handle: hMock}
 
 	// virtual service fixtures
 	svc = &types.VirtualService{
@@ -51,21 +49,18 @@ var _ = BeforeEach(func() {
 			Flags:     []string{"flag-2", "flag-3"},
 		},
 	}
-	hSvc = &libipvs.Service{
+	hSvc = &ipvs.Service{
 		Address:       net.ParseIP("10.10.10.10"),
-		Protocol:      libipvs.Protocol(syscall.IPPROTO_TCP),
-		Port:          uint16(555),
+		Protocol:      syscall.IPPROTO_TCP,
+		Port:          555,
 		AddressFamily: syscall.AF_INET,
 		SchedName:     "sh",
-		Flags: libipvs.Flags{
-			Flags: libipvs.IP_VS_SVC_F_SCHED2 | libipvs.IP_VS_SVC_F_SCHED3,
-			Mask:  ^uint32(0),
-		},
+		Flags:         ipVsSvcFSched2 | ipVsSvcFSched3,
 	}
 	hSvcCopy := *hSvc
 	hSvcKey = &hSvcCopy
 	hSvcKey.SchedName = ""
-	hSvcKey.Flags = libipvs.Flags{}
+	hSvcKey.Flags = 0
 
 	// real server fixtures
 	server = &types.RealServer{
@@ -78,235 +73,209 @@ var _ = BeforeEach(func() {
 			Forward: types.ForwardMethod_MASQ,
 		},
 	}
-	hDest = &libipvs.Destination{
-		Address:       net.ParseIP("172.16.10.10"),
-		Port:          999,
-		AddressFamily: syscall.AF_INET,
-		FwdMethod:     libipvs.FwdMethod(libipvs.IP_VS_CONN_F_MASQ),
-		Weight:        2,
+	hDest = &ipvs.Destination{
+		Address:         net.ParseIP("172.16.10.10"),
+		Port:            999,
+		AddressFamily:   syscall.AF_INET,
+		ConnectionFlags: ipvs.ConnectionFlagMasq,
+		Weight:          2,
 	}
 	hDestCopy := *hDest
 	hDestKey = &hDestCopy
-	hDestKey.FwdMethod = 0
+	hDestKey.ConnectionFlags = 0
 	hDestKey.Weight = 0
 })
 
-var _ = Describe("AddService", func() {
+var _ = Describe("IPVS Shim", func() {
 
-	It("should add to libipvs", func() {
-		hMock.On("NewService", hSvc).Return(nil)
+	Describe("AddService", func() {
+		It("should add to libipvs", func() {
+			hMock.On("NewService", hSvc).Return(nil)
 
-		err := ipvs.AddService(svc)
+			err := ipvsShim.AddService(svc)
 
-		Expect(err).ToNot(HaveOccurred())
-		hMock.AssertExpectations(GinkgoT())
+			Expect(err).ToNot(HaveOccurred())
+			hMock.AssertExpectations(GinkgoT())
+		})
+
+		DescribeTable("translate flags", func(flags []string, flagbits uint32) {
+			svc.Config.Flags = flags
+			hSvc.Flags = flagbits
+
+			hMock.On("NewService", hSvc).Return(nil)
+
+			err := ipvsShim.AddService(svc)
+
+			Expect(err).ToNot(HaveOccurred())
+			hMock.AssertExpectations(GinkgoT())
+		},
+			Entry("no flags",
+				[]string{""},
+				uint32(0)),
+			Entry("single flag",
+				[]string{"flag-1"},
+				uint32(ipVsSvcFSched1)),
+			Entry("multiple flags",
+				[]string{"flag-1", "flag-2"},
+				uint32(ipVsSvcFSched1|ipVsSvcFSched2)),
+			Entry("invalid flags",
+				[]string{"flag-1", "ignored", "flag-2"},
+				uint32(ipVsSvcFSched1|ipVsSvcFSched2)),
+		)
+
+		It("should support UDP", func() {
+			svc.Key.Protocol = types.Protocol_UDP
+			hSvc.Protocol = syscall.IPPROTO_UDP
+			hMock.On("NewService", hSvc).Return(nil)
+
+			err := ipvsShim.AddService(svc)
+
+			Expect(err).ToNot(HaveOccurred())
+			hMock.AssertExpectations(GinkgoT())
+		})
 	})
 
-	DescribeTable("translate flags", func(flags []string, flagbits uint32) {
-		svc.Config.Flags = flags
-		hSvc.Flags.Flags = flagbits
+	Describe("UpdateService", func() {
+		It("should update in libipvs", func() {
+			hMock.On("UpdateService", hSvc).Return(nil)
 
-		hMock.On("NewService", hSvc).Return(nil)
+			err := ipvsShim.UpdateService(svc)
 
-		err := ipvs.AddService(svc)
+			Expect(err).ToNot(HaveOccurred())
+			hMock.AssertExpectations(GinkgoT())
+		})
+	})
 
-		Expect(err).ToNot(HaveOccurred())
-		hMock.AssertExpectations(GinkgoT())
+	Describe("DeleteService", func() {
+		It("should delete in libipvs", func() {
+			hMock.On("DelService", hSvc).Return(nil)
+
+			hSvc.SchedName = ""
+			hSvc.Flags = 0
+			err := ipvsShim.DeleteService(svc.Key)
+
+			Expect(err).ToNot(HaveOccurred())
+			hMock.AssertExpectations(GinkgoT())
+		})
+	})
+
+	Describe("ListServices", func() {
+		It("should list all services reported by libipvs", func() {
+			hSvcs := []*ipvs.Service{hSvc}
+			hMock.On("GetServices").Return(hSvcs, nil)
+
+			svcs, err := ipvsShim.ListServices()
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(svcs).To(HaveLen(1))
+			Expect(svcs).To(ContainElement(svc))
+		})
+	})
+
+	Describe("AddServer", func() {
+		It("should add to libipvs", func() {
+			hMock.On("NewDestination", hSvcKey, hDest).Return(nil)
+
+			err := ipvsShim.AddServer(svc.Key, server)
+
+			Expect(err).ToNot(HaveOccurred())
+			hMock.AssertExpectations(GinkgoT())
+		})
+	})
+
+	Describe("UpdateServer", func() {
+		It("should update in libipvs", func() {
+			hMock.On("UpdateDestination", hSvcKey, hDest).Return(nil)
+
+			err := ipvsShim.UpdateServer(svc.Key, server)
+
+			Expect(err).ToNot(HaveOccurred())
+			hMock.AssertExpectations(GinkgoT())
+		})
+	})
+
+	Describe("DeleteServer", func() {
+		It("should delete in libipvs", func() {
+			hMock.On("DelDestination", hSvcKey, hDestKey).Return(nil)
+
+			err := ipvsShim.DeleteServer(svc.Key, server)
+
+			Expect(err).ToNot(HaveOccurred())
+			hMock.AssertExpectations(GinkgoT())
+		})
+	})
+
+	Describe("ListServers", func() {
+		It("should list all the destinations in libipvs", func() {
+			hMock.On("GetDestinations", hSvcKey).Return([]*ipvs.Destination{hDest}, nil)
+
+			servers, err := ipvsShim.ListServers(svc.Key)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(servers).To(HaveLen(1))
+			Expect(servers).To(ContainElement(server))
+		})
+	})
+
+	DescribeTable("Flagbits Conversion", func(flagbits int, flags []string) {
+		sort.Strings(flags)
+		actualFlags := fromFlagBits(uint32(flagbits))
+		Expect(actualFlags).To(Equal(flags))
+
+		actualFlagbits := toFlagBits(flags)
+		Expect(actualFlagbits).To(Equal(uint32(flagbits)))
 	},
-		Entry("no flags",
-			[]string{""},
-			uint32(0)),
-		Entry("single flag",
-			[]string{"flag-1"},
-			uint32(libipvs.IP_VS_SVC_F_SCHED1)),
-		Entry("multiple flags",
-			[]string{"flag-1", "flag-2"},
-			uint32(libipvs.IP_VS_SVC_F_SCHED1|libipvs.IP_VS_SVC_F_SCHED2)),
-		Entry("invalid flags",
-			[]string{"flag-1", "ignored", "flag-2"},
-			uint32(libipvs.IP_VS_SVC_F_SCHED1|libipvs.IP_VS_SVC_F_SCHED2)),
-	)
-
-	It("should support UDP", func() {
-		svc.Key.Protocol = types.Protocol_UDP
-		hSvc.Protocol = libipvs.Protocol(syscall.IPPROTO_UDP)
-		hMock.On("NewService", hSvc).Return(nil)
-
-		err := ipvs.AddService(svc)
-
-		Expect(err).ToNot(HaveOccurred())
-		hMock.AssertExpectations(GinkgoT())
-	})
+		Entry("flag-1", ipVsSvcFSched1, []string{"flag-1"}),
+		Entry("flag-2", ipVsSvcFSched2, []string{"flag-2"}),
+		Entry("flag-3", ipVsSvcFSched3, []string{"flag-3"}),
+		Entry("multiple flags", ipVsSvcFSched1|ipVsSvcFSched2|ipVsSvcFSched3,
+			[]string{"flag-1", "flag-2", "flag-3"}))
 })
 
-var _ = Describe("UpdateService", func() {
-	It("should update in libipvs", func() {
-		hMock.On("UpdateService", hSvc).Return(nil)
-
-		err := ipvs.UpdateService(svc)
-
-		Expect(err).ToNot(HaveOccurred())
-		hMock.AssertExpectations(GinkgoT())
-	})
-})
-
-var _ = Describe("DeleteService", func() {
-	It("should delete in libipvs", func() {
-		hMock.On("DelService", hSvc).Return(nil)
-
-		hSvc.SchedName = ""
-		hSvc.Flags = libipvs.Flags{}
-		err := ipvs.DeleteService(svc.Key)
-
-		Expect(err).ToNot(HaveOccurred())
-		hMock.AssertExpectations(GinkgoT())
-	})
-})
-
-var _ = Describe("ListServices", func() {
-	It("should list all services reported by libipvs", func() {
-		hSvcs := []*libipvs.Service{hSvc}
-		hMock.On("ListServices").Return(hSvcs, nil)
-
-		svcs, err := ipvs.ListServices()
-
-		Expect(err).ToNot(HaveOccurred())
-		Expect(svcs).To(HaveLen(1))
-		Expect(svcs).To(ContainElement(svc))
-	})
-})
-
-var _ = Describe("AddServer", func() {
-	It("should add to libipvs", func() {
-		hMock.On("NewDestination", hSvcKey, hDest).Return(nil)
-
-		err := ipvs.AddServer(svc.Key, server)
-
-		Expect(err).ToNot(HaveOccurred())
-		hMock.AssertExpectations(GinkgoT())
-	})
-})
-
-var _ = Describe("UpdateServer", func() {
-	It("should update in libipvs", func() {
-		hMock.On("UpdateDestination", hSvcKey, hDest).Return(nil)
-
-		err := ipvs.UpdateServer(svc.Key, server)
-
-		Expect(err).ToNot(HaveOccurred())
-		hMock.AssertExpectations(GinkgoT())
-	})
-})
-
-var _ = Describe("DeleteServer", func() {
-	It("should delete in libipvs", func() {
-		hMock.On("DelDestination", hSvcKey, hDestKey).Return(nil)
-
-		err := ipvs.DeleteServer(svc.Key, server)
-
-		Expect(err).ToNot(HaveOccurred())
-		hMock.AssertExpectations(GinkgoT())
-	})
-})
-
-var _ = Describe("ListServers", func() {
-	It("should list all the destinations in libipvs", func() {
-		hMock.On("ListDestinations", hSvcKey).Return([]*libipvs.Destination{hDest}, nil)
-
-		servers, err := ipvs.ListServers(svc.Key)
-
-		Expect(err).ToNot(HaveOccurred())
-		Expect(servers).To(HaveLen(1))
-		Expect(servers).To(ContainElement(server))
-	})
-})
-
-type handlerMock struct {
+type handleMock struct {
 	mock.Mock
 }
 
-func (m *handlerMock) Flush() error {
-	panic("implement me")
+func (m *handleMock) Close() {
+	m.Called()
 }
 
-func (m *handlerMock) GetInfo() (info libipvs.Info, err error) {
-	panic("implement me")
-}
-
-func (m *handlerMock) ListServices() (services []*libipvs.Service, err error) {
+func (m *handleMock) GetServices() (services []*ipvs.Service, err error) {
 	args := m.Called()
-	return args.Get(0).([]*libipvs.Service), args.Error(1)
+	return args.Get(0).([]*ipvs.Service), args.Error(1)
 }
 
-func (m *handlerMock) NewService(s *libipvs.Service) error {
+func (m *handleMock) NewService(s *ipvs.Service) error {
 	args := m.Called(s)
 	return args.Error(0)
 }
 
-func (m *handlerMock) UpdateService(s *libipvs.Service) error {
+func (m *handleMock) UpdateService(s *ipvs.Service) error {
 	args := m.Called(s)
 	return args.Error(0)
 }
 
-func (m *handlerMock) DelService(s *libipvs.Service) error {
+func (m *handleMock) DelService(s *ipvs.Service) error {
 	args := m.Called(s)
 	return args.Error(0)
 }
 
-func (m *handlerMock) ListDestinations(s *libipvs.Service) (dsts []*libipvs.Destination, err error) {
+func (m *handleMock) GetDestinations(s *ipvs.Service) ([]*ipvs.Destination, error) {
 	args := m.Called(s)
-	return args.Get(0).([]*libipvs.Destination), args.Error(1)
+	return args.Get(0).([]*ipvs.Destination), args.Error(1)
 }
 
-func (m *handlerMock) NewDestination(s *libipvs.Service, d *libipvs.Destination) error {
+func (m *handleMock) NewDestination(s *ipvs.Service, d *ipvs.Destination) error {
 	args := m.Called(s, d)
 	return args.Error(0)
 }
 
-func (m *handlerMock) UpdateDestination(s *libipvs.Service, d *libipvs.Destination) error {
+func (m *handleMock) UpdateDestination(s *ipvs.Service, d *ipvs.Destination) error {
 	args := m.Called(s, d)
 	return args.Error(0)
 }
 
-func (m *handlerMock) DelDestination(s *libipvs.Service, d *libipvs.Destination) error {
+func (m *handleMock) DelDestination(s *ipvs.Service, d *ipvs.Destination) error {
 	args := m.Called(s, d)
 	return args.Error(0)
-}
-
-func TestConvertFlagbits(t *testing.T) {
-	tests := []struct {
-		name     string
-		flagbits uint32
-		want     []string
-	}{
-		{
-			"flag-1",
-			libipvs.IP_VS_SVC_F_SCHED1,
-			[]string{"flag-1"},
-		},
-		{
-			"flag-2",
-			libipvs.IP_VS_SVC_F_SCHED2,
-			[]string{"flag-2"},
-		},
-		{
-			"flag-3",
-			libipvs.IP_VS_SVC_F_SCHED3,
-			[]string{"flag-3"},
-		},
-		{
-			"multiple flags",
-			libipvs.IP_VS_SVC_F_SCHED1 | libipvs.IP_VS_SVC_F_SCHED2 | libipvs.IP_VS_SVC_F_SCHED3,
-			[]string{"flag-1", "flag-2", "flag-3"},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := convertFlagbits(tt.flagbits)
-			sort.Strings(got)
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("convertFlagbits() = %v, want %v", got, tt.want)
-			}
-		})
-	}
 }
