@@ -58,7 +58,7 @@ func (s *shim) Close() {
 	s.handle.Close()
 }
 
-func createHandleService(key *types.VirtualService_Key) (*ipvs.Service, error) {
+func createHandleServiceKey(key *types.VirtualService_Key) (*ipvs.Service, error) {
 	protNum, err := toProtocolBits(key.Protocol)
 	if err != nil {
 		return nil, err
@@ -72,13 +72,18 @@ func createHandleService(key *types.VirtualService_Key) (*ipvs.Service, error) {
 	return svc, nil
 }
 
-func (s *shim) AddService(svc *types.VirtualService) error {
-	ipvsSvc, err := createHandleService(svc.Key)
+func createHandleService(svc *types.VirtualService) (*ipvs.Service, error) {
+	ipvsSvc, err := createHandleServiceKey(svc.Key)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ipvsSvc.SchedName = svc.Config.Scheduler
 	ipvsSvc.Flags = toFlagBits(svc.Config.Flags)
+	return ipvsSvc, nil
+}
+
+func (s *shim) AddService(svc *types.VirtualService) error {
+	ipvsSvc, err := createHandleService(svc)
 	if err != nil {
 		return err
 	}
@@ -86,12 +91,7 @@ func (s *shim) AddService(svc *types.VirtualService) error {
 }
 
 func (s *shim) UpdateService(svc *types.VirtualService) error {
-	ipvsSvc, err := createHandleService(svc.Key)
-	if err != nil {
-		return err
-	}
-	ipvsSvc.SchedName = svc.Config.Scheduler
-	ipvsSvc.Flags = toFlagBits(svc.Config.Flags)
+	ipvsSvc, err := createHandleService(svc)
 	if err != nil {
 		return err
 	}
@@ -99,7 +99,7 @@ func (s *shim) UpdateService(svc *types.VirtualService) error {
 }
 
 func (s *shim) DeleteService(key *types.VirtualService_Key) error {
-	svc, err := createHandleService(key)
+	svc, err := createHandleServiceKey(key)
 	if err != nil {
 		return err
 	}
@@ -157,12 +157,22 @@ func createHandleDestination(server *types.RealServer, full bool) (*ipvs.Destina
 	return dest, nil
 }
 
-func (s *shim) AddServer(key *types.VirtualService_Key, server *types.RealServer) error {
-	svc, err := createHandleService(key)
+func createHandleServiceKeyAndDestination(key *types.VirtualService_Key, server *types.RealServer,
+	fullServer bool) (*ipvs.Service, *ipvs.Destination, error) {
+
+	svc, err := createHandleServiceKey(key)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	dest, err := createHandleDestination(server, true)
+	dest, err := createHandleDestination(server, fullServer)
+	if err != nil {
+		return nil, nil, err
+	}
+	return svc, dest, nil
+}
+
+func (s *shim) AddServer(key *types.VirtualService_Key, server *types.RealServer) error {
+	svc, dest, err := createHandleServiceKeyAndDestination(key, server, true)
 	if err != nil {
 		return err
 	}
@@ -170,11 +180,7 @@ func (s *shim) AddServer(key *types.VirtualService_Key, server *types.RealServer
 }
 
 func (s *shim) UpdateServer(key *types.VirtualService_Key, server *types.RealServer) error {
-	svc, err := createHandleService(key)
-	if err != nil {
-		return err
-	}
-	dest, err := createHandleDestination(server, true)
+	svc, dest, err := createHandleServiceKeyAndDestination(key, server, true)
 	if err != nil {
 		return err
 	}
@@ -182,11 +188,7 @@ func (s *shim) UpdateServer(key *types.VirtualService_Key, server *types.RealSer
 }
 
 func (s *shim) DeleteServer(key *types.VirtualService_Key, server *types.RealServer) error {
-	svc, err := createHandleService(key)
-	if err != nil {
-		return err
-	}
-	dest, err := createHandleDestination(server, false)
+	svc, dest, err := createHandleServiceKeyAndDestination(key, server, false)
 	if err != nil {
 		return err
 	}
@@ -194,7 +196,7 @@ func (s *shim) DeleteServer(key *types.VirtualService_Key, server *types.RealSer
 }
 
 func (s *shim) ListServers(key *types.VirtualService_Key) ([]*types.RealServer, error) {
-	svc, err := createHandleService(key)
+	svc, err := createHandleServiceKey(key)
 	if err != nil {
 		return nil, err
 	}

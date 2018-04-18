@@ -78,7 +78,7 @@ func toFlagBits(flags []string) uint32 {
 		if b, exists := schedulerFlags[flag]; exists {
 			flagbits |= b
 		} else {
-			log.Warnf("unknown scheduler flag %q, ignoring", flag)
+			log.Warnf("Unknown scheduler flag %q, ignoring", flag)
 		}
 	}
 	return flagbits
