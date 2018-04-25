@@ -45,7 +45,7 @@ type shim struct {
 
 // New IPVS shim. This creates an underlying netlink socket. Call Close() to release the associated resources.
 func New() (IPVS, error) {
-	h, err := ipvs.New("/")
+	h, err := ipvs.New("")
 	if err != nil {
 		return nil, fmt.Errorf("unable to init ipvs: %v", err)
 	}
