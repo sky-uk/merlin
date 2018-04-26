@@ -17,18 +17,18 @@ import (
 	"github.com/sky-uk/merlin/types"
 )
 
-// HealthState of a server.
-type HealthState bool
+// ServerStatus of a server.
+type ServerStatus bool
 
 const (
 	// ServerUp if server is healthy.
-	ServerUp HealthState = true
+	ServerUp ServerStatus = true
 	// ServerDown if server is unhealthy.
-	ServerDown HealthState = false
+	ServerDown ServerStatus = false
 )
 
 // TransitionFunc is called on a health state change.
-type TransitionFunc func(state HealthState)
+type TransitionFunc func(state ServerStatus)
 
 // Checker checks if the real servers of a virtual service are up.
 type Checker interface {
@@ -43,43 +43,43 @@ type Checker interface {
 	Stop()
 }
 
-type healthCheckStateKey struct {
-	id  string
-	key types.RealServer_Key
+type checkKey struct {
+	serviceID string
+	key       types.RealServer_Key
 }
 
 type checker struct {
-	healthCheckStates map[healthCheckStateKey]*healthCheckState
+	checks map[checkKey]*check
 	sync.Mutex
 }
 
-type healthCheckState struct {
+type check struct {
 	// immutable state
 	serverIP    string
 	healthCheck *types.RealServer_HealthCheck
 	stopCh      chan struct{}
 
 	// mutable state
-	status       *healthCheckStatus
-	transitionFn TransitionFunc
-	// Guards status and transitionFn which can change asynchronously.
-	sync.Mutex
+	state *checkState
 }
 
-// healthCheckStatus keeps track of the current status of a health check for a specific real server.
-// state field represents the current state, either up or down.
-// count field is a state variable, whose meaning changes depending on state:
-// * up   - count is the number of failed health checks
-// * down - count is the number of successful health checks
-type healthCheckStatus struct {
-	state HealthState
-	count uint32
+// checkState keeps track of the current status of a health check for a specific real server.
+type checkState struct {
+	// status represents the current state, either up or down.
+	status ServerStatus
+	// transitionCount is a state variable, whose meaning changes depending on state:
+	//   * up   - count is the number of failed health checks
+	//   * down - count is the number of successful health checks
+	transitionCount uint32
+	// transitionFn is called when the status changes.
+	transitionFn TransitionFunc
+	sync.Mutex
 }
 
 // New creates a new checker.
 func New() Checker {
 	return &checker{
-		healthCheckStates: make(map[healthCheckStateKey]*healthCheckState),
+		checks: make(map[checkKey]*check),
 	}
 }
 
@@ -87,21 +87,21 @@ func (c *checker) IsDown(serviceID string, key *types.RealServer_Key) bool {
 	c.Lock()
 	defer c.Unlock()
 
-	stateKey := healthCheckStateKey{id: serviceID, key: *key}
-	state, ok := c.healthCheckStates[stateKey]
+	checkKey := checkKey{serviceID: serviceID, key: *key}
+	check, ok := c.checks[checkKey]
 	if !ok {
-		panic(fmt.Sprintf("bug: health check not added yet: %v", stateKey))
+		panic(fmt.Sprintf("bug: health check not added yet: %v", checkKey))
 	}
-	if state.healthCheck.Endpoint.GetValue() == "" {
+	if check.healthCheck.Endpoint.GetValue() == "" {
 		return false
 	}
 
-	state.Lock()
-	defer state.Unlock()
-	return state.status.state == ServerDown
+	check.state.Lock()
+	defer check.state.Unlock()
+	return check.state.status == ServerDown
 }
 
-func validateCheck(check *types.RealServer_HealthCheck) error {
+func validateHealthCheck(check *types.RealServer_HealthCheck) error {
 	if check == nil {
 		return errors.New("check should be non-nil")
 	}
@@ -121,124 +121,118 @@ func validateCheck(check *types.RealServer_HealthCheck) error {
 	return nil
 }
 
-func (c *checker) SetHealthCheck(serviceID string, key *types.RealServer_Key, check *types.RealServer_HealthCheck,
+func (c *checker) SetHealthCheck(serviceID string, key *types.RealServer_Key, healthCheck *types.RealServer_HealthCheck,
 	fn TransitionFunc) error {
 
-	if err := validateCheck(check); err != nil {
-		return fmt.Errorf("invalid healthcheck %v: %v", check, err)
+	if err := validateHealthCheck(healthCheck); err != nil {
+		return fmt.Errorf("invalid healthcheck %v: %v", healthCheck, err)
 	}
 
 	if fn == nil {
-		fn = func(_ HealthState) {}
+		fn = func(_ ServerStatus) {}
 	}
 
 	c.Lock()
 	defer c.Unlock()
 
-	status := &healthCheckStatus{
-		state: ServerDown,
-		count: 0,
+	state := &checkState{
+		status:          ServerDown,
+		transitionCount: 0,
+		transitionFn:    fn,
 	}
 
-	stateKey := healthCheckStateKey{id: serviceID, key: *key}
-	if origState, ok := c.healthCheckStates[stateKey]; ok {
+	checkKey := checkKey{serviceID: serviceID, key: *key}
+	if origCheck, ok := c.checks[checkKey]; ok {
 
-		origState.Lock()
-		origState.transitionFn = fn
-		origState.Unlock()
+		origCheck.state.Lock()
+		origCheck.state.transitionFn = fn
+		origCheck.state.Unlock()
 
 		// Don't replace health check if it's the same.
-		if proto.Equal(origState.healthCheck, check) {
+		if proto.Equal(origCheck.healthCheck, healthCheck) {
 			return nil
 		}
 
 		// Stop any existing health check goroutine.
-		if origState.stopCh != nil {
-			close(origState.stopCh)
-		}
+		close(origCheck.stopCh)
 
 		// Copy prior state into new state.
-		origState.Lock()
-		status.state = origState.status.state
-		status.count = origState.status.count
-		origState.Unlock()
+		origCheck.state.Lock()
+		state.status = origCheck.state.status
+		state.transitionCount = origCheck.state.transitionCount
+		origCheck.state.Unlock()
 	}
 
-	state := &healthCheckState{
-		serverIP:     key.Ip,
-		healthCheck:  check,
-		status:       status,
-		transitionFn: fn,
+	check := &check{
+		serverIP:    key.Ip,
+		healthCheck: healthCheck,
+		state:       state,
+		stopCh:      make(chan struct{}),
 	}
 
-	c.healthCheckStates[stateKey] = state
-	state.startBackgroundHealthCheck()
+	c.checks[checkKey] = check
+	check.startBackgroundHealthCheck()
 	return nil
 }
 
-func (s *healthCheckState) startBackgroundHealthCheck() {
-	if s.healthCheck.Endpoint.GetValue() == "" {
+func (c *check) startBackgroundHealthCheck() {
+	if c.healthCheck.Endpoint.GetValue() == "" {
 		// endpoint is empty, don't health check
 		return
 	}
-	stopCh := make(chan struct{})
-	s.stopCh = stopCh
-	go s.healthCheckLoop()
+	go c.healthCheckLoop()
 }
 
 func (c *checker) RemHealthCheck(serviceID string, key *types.RealServer_Key) {
 	c.Lock()
 	defer c.Unlock()
 
-	stateKey := healthCheckStateKey{id: serviceID, key: *key}
-	state, ok := c.healthCheckStates[stateKey]
+	checkKey := checkKey{serviceID: serviceID, key: *key}
+	check, ok := c.checks[checkKey]
 	if !ok {
 		// nothing to remove
 		return
 	}
-
-	if state.stopCh != nil {
-		close(state.stopCh)
-	}
-	delete(c.healthCheckStates, stateKey)
+	close(check.stopCh)
+	delete(c.checks, checkKey)
 }
 
 func (c *checker) Stop() {
 	c.Lock()
-	var keys []healthCheckStateKey
-	for key := range c.healthCheckStates {
+	var keys []checkKey
+	for key := range c.checks {
 		keys = append(keys, key)
 	}
 	c.Unlock()
 
 	for _, key := range keys {
-		c.RemHealthCheck(key.id, &key.key)
+		c.RemHealthCheck(key.serviceID, &key.key)
 	}
 }
 
-// healthCheck a real server and update its status
-func (s *healthCheckState) healthCheckLoop() {
-	log.Infof("Starting health check for %s: %v", s.serverIP, s.healthCheck)
+// check a real server and update its status
+func (c *check) healthCheckLoop() {
+	log.Infof("Starting health check for %s: %v", c.serverIP, c.healthCheck)
 
 	// perform first health check immediately
-	s.performHealthCheck()
+	c.performHealthCheck()
 
-	per, _ := ptypes.Duration(s.healthCheck.Period)
-	t := time.NewTicker(per)
+	checkPeriod, _ := ptypes.Duration(c.healthCheck.Period)
+	t := time.NewTicker(checkPeriod)
 	defer t.Stop()
 	for {
 		select {
 		case <-t.C:
-			s.performHealthCheck()
-		case <-s.stopCh:
-			log.Infof("Stopped health check for %s", s.serverIP)
+			c.performHealthCheck()
+		case <-c.stopCh:
+			log.Infof("Stopped health check for %s", c.serverIP)
 			return
 		}
 	}
 }
 
-func (s *healthCheckState) performHealthCheck() {
-	checkURL, err := url.Parse(s.healthCheck.Endpoint.GetValue())
+func (c *check) performHealthCheck() {
+	checkURL, err := url.Parse(c.healthCheck.Endpoint.GetValue())
 	if err != nil {
 		panic(err)
 	}
@@ -250,7 +244,7 @@ func (s *healthCheckState) performHealthCheck() {
 	tr := &http.Transport{
 		DisableKeepAlives: true,
 	}
-	timeout, err := ptypes.Duration(s.healthCheck.Timeout)
+	timeout, err := ptypes.Duration(c.healthCheck.Timeout)
 	if err != nil {
 		panic(err)
 	}
@@ -259,7 +253,7 @@ func (s *healthCheckState) performHealthCheck() {
 		Timeout:   timeout,
 	}
 
-	serverURL, err := url.Parse(fmt.Sprintf("http://%s:%s%s", s.serverIP, checkURL.Port(), checkURL.Path))
+	serverURL, err := url.Parse(fmt.Sprintf("http://%s:%s%s", c.serverIP, checkURL.Port(), checkURL.Path))
 	if err != nil {
 		panic(err)
 	}
@@ -267,49 +261,41 @@ func (s *healthCheckState) performHealthCheck() {
 	resp, err := client.Get(serverURL.String())
 	if err != nil {
 		log.Infof("%s inaccessible: %v", serverURL, err)
-		s.incrementDown()
+		c.incrementDown()
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || 300 <= resp.StatusCode {
 		body, _ := ioutil.ReadAll(resp.Body)
 		log.Infof("%s returned %d: %s", serverURL, resp.StatusCode, string(body))
-		s.incrementDown()
+		c.incrementDown()
 		return
 	}
-	s.incrementUp()
+	c.incrementUp()
 }
 
-func (s *healthCheckState) incrementUp() {
-	s.Lock()
-	defer s.Unlock()
-	status := s.status
-	switch status.state {
-	case ServerDown:
-		status.count++
-		if status.count >= s.healthCheck.UpThreshold {
-			status.state = ServerUp
-			status.count = 0
-			s.transitionFn(status.state)
-		}
-	case ServerUp:
-		status.count = 0
-	}
+func (c *check) incrementUp() {
+	c.state.increment(ServerDown, ServerUp, c.healthCheck.UpThreshold)
 }
 
-func (s *healthCheckState) incrementDown() {
+func (c *check) incrementDown() {
+	c.state.increment(ServerUp, ServerDown, c.healthCheck.DownThreshold)
+}
+
+func (s *checkState) increment(current, next ServerStatus, transitionThreshold uint32) {
 	s.Lock()
 	defer s.Unlock()
-	status := s.status
-	switch status.state {
-	case ServerDown:
-		status.count = 0
-	case ServerUp:
-		status.count++
-		if status.count >= s.healthCheck.DownThreshold {
-			status.state = ServerDown
-			status.count = 0
-			s.transitionFn(status.state)
+	switch s.status {
+	case current:
+		s.transitionCount++
+		if s.transitionCount >= transitionThreshold {
+			s.status = next
+			s.transitionCount = 0
+			s.transitionFn(s.status)
 		}
+	case next:
+		s.transitionCount = 0
+	default:
+		panic("bug: unrecognized status")
 	}
 }

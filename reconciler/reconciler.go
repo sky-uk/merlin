@@ -108,7 +108,7 @@ func (r *reconciler) createHealthStateWeightUpdater(serviceKey *types.VirtualSer
 	// clone the original server, to protect against external mutation
 	server := proto.Clone(originalServer).(*types.RealServer)
 
-	return func(state healthchecks.HealthState) {
+	return func(state healthchecks.ServerStatus) {
 		serverCopy := proto.Clone(server).(*types.RealServer)
 		switch state {
 		case healthchecks.ServerDown:

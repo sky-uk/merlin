@@ -43,7 +43,7 @@ func getServerStatus() int {
 	return serverStatus
 }
 
-func stubTransitionFn(_ HealthState) {}
+func stubTransitionFn(_ ServerStatus) {}
 
 var _ = Describe("HealthChecks", func() {
 	var (
@@ -251,7 +251,7 @@ var _ = Describe("HealthChecks", func() {
 	Context("transition function", func() {
 		var (
 			called        bool
-			receivedState HealthState
+			receivedState ServerStatus
 			lock          *sync.Mutex
 		)
 
@@ -259,7 +259,7 @@ var _ = Describe("HealthChecks", func() {
 			called = false
 			receivedState = ServerDown
 			lock = &sync.Mutex{}
-			checker.SetHealthCheck(serviceID, localServer1, check, func(state HealthState) {
+			checker.SetHealthCheck(serviceID, localServer1, check, func(state ServerStatus) {
 				lock.Lock()
 				defer lock.Unlock()
 				called = true
@@ -313,7 +313,7 @@ var _ = Describe("HealthChecks", func() {
 			setServerStatus(http.StatusOK)
 			var updatedCalled bool
 
-			checker.SetHealthCheck(serviceID, localServer1, check, func(_ HealthState) {
+			checker.SetHealthCheck(serviceID, localServer1, check, func(_ ServerStatus) {
 				lock.Lock()
 				defer lock.Unlock()
 				updatedCalled = true
