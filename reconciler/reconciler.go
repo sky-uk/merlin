@@ -165,12 +165,13 @@ func (r *reconciler) reconcile() {
 		}
 
 		if match == nil {
-			log.Infof("Adding virtual service: %v", desiredService)
+			log.Infof("Adding virtual service: %s", desiredService.PrettyString())
 			if err := r.ipvs.AddService(desiredService); err != nil {
 				log.Errorf("Unable to add service: %v", err)
 			}
 		} else if !proto.Equal(desiredService.Config, match.Config) {
-			log.Infof("Updating virtual service %q: [%v] to [%v]", desiredService.Id, match.Config, desiredService.Config)
+			log.Infof("Updating virtual service %q: [%v] to [%v]", desiredService.Id, match.Config.PrettyString(),
+				desiredService.Config.PrettyString())
 			if err := r.ipvs.UpdateService(desiredService); err != nil {
 				log.Errorf("Unable to update service: %v", err)
 			}
@@ -178,12 +179,12 @@ func (r *reconciler) reconcile() {
 
 		desiredServers, err := r.store.ListServers(ctx, desiredService.Id)
 		if err != nil {
-			log.Errorf("unable to list servers in store for %s: %v", desiredService.Key, err)
+			log.Errorf("unable to list servers in store for %s: %v", desiredService.Key.PrettyString(), err)
 			continue
 		}
 		actualServers, err := r.ipvs.ListServers(desiredService.Key)
 		if err != nil {
-			log.Errorf("unable to list servers in ipvs for %v: %v", desiredService.Key, err)
+			log.Errorf("unable to list servers in ipvs for %v: %v", desiredService.Key.PrettyString(), err)
 			continue
 		}
 
@@ -206,12 +207,12 @@ func (r *reconciler) reconcile() {
 
 			// update IPVS
 			if match == nil {
-				log.Infof("Adding real server: %v", desiredServer)
+				log.Infof("Adding real server: %v", desiredServer.PrettyString())
 				if err := r.ipvs.AddServer(desiredService.Key, desiredServer); err != nil {
 					log.Errorf("Unable to add server: %v", err)
 				}
 			} else if !proto.Equal(desiredServer.Config, match.Config) {
-				log.Infof("Updating real server: %v", desiredServer)
+				log.Infof("Updating real server: %v", desiredServer.PrettyString())
 				if err := r.ipvs.UpdateServer(desiredService.Key, desiredServer); err != nil {
 					log.Errorf("Unable to update server: %v", err)
 				}
@@ -228,7 +229,7 @@ func (r *reconciler) reconcile() {
 				}
 			}
 			if !found {
-				log.Infof("Deleting real server: %v", actualServer)
+				log.Infof("Deleting real server: %v", actualServer.PrettyString())
 				// remove health check
 				r.checker.RemHealthCheck(desiredService.Id, actualServer.Key)
 				// remove from ipvs
@@ -249,7 +250,7 @@ func (r *reconciler) reconcile() {
 			}
 		}
 		if !found {
-			log.Infof("Deleting virtual service: %v", actual)
+			log.Infof("Deleting virtual service: %v", actual.PrettyString())
 			if err := r.ipvs.DeleteService(actual.Key); err != nil {
 				log.Errorf("Unable to delete service: %v", err)
 			}
