@@ -1,8 +1,6 @@
-package Meradm
+package cli
 
 import (
-	"testing"
-
 	"bytes"
 	"fmt"
 	"os"
@@ -17,12 +15,7 @@ import (
 	. "github.com/sky-uk/merlin/e2e"
 )
 
-func TestE2EMeradm(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "E2E Meradm Suite")
-}
-
-var _ = Describe("Meradm", func() {
+var _ = Describe("E2E With Meradm/Merlin/Etcd", func() {
 	BeforeSuite(func() {
 		SetupE2E()
 	})
@@ -225,7 +218,10 @@ func meradm(args ...string) string {
 }
 
 func meradmErrored(args ...string) (string, error) {
-	args = append(args, "-H=localhost", "-P="+MerlinPort())
+	merlinPort := MerlinPort()
+	if merlinPort != "" {
+		args = append(args, "-H=localhost", "-P="+merlinPort)
+	}
 	c := exec.Command("meradm", args...)
 	c.Stderr = os.Stderr
 	var output bytes.Buffer

@@ -1,6 +1,11 @@
 pkgs := $(shell go list ./... | grep -v /types)
 prod_pkgs := $(shell go list ./... | grep -v /types | grep -v /e2e)
 files := $(shell find . -path ./vendor -prune -path ./types/types.pb.go -prune -o -name '*.go' -print)
+git_rev := $(shell git rev-parse --short HEAD)
+git_tag := $(shell git tag --points-at=$(git_rev))
+image := skycirrus/merlin
+build_time := $(shell date -u)
+ldflags := -X main.Version=$(if $(git_tag),$(git_tag),dev-$(git_rev)) -X "main.BuildTime=$(build_time)"
 
 .PHONY: all clean format test build-release vet lint checkformat check docker release-docker proto setup
 
@@ -27,13 +32,13 @@ clean :
 
 build-release :
 	@echo "== build-release"
-	CGO_ENABLED=0 GOOS=linux go build -ldflags "-s" -a -installsuffix static github.com/sky-uk/merlin/cmd/merlin
-	CGO_ENABLED=0 GOOS=linux go build -ldflags "-s" -a -installsuffix static github.com/sky-uk/merlin/cmd/meradm
+	CGO_ENABLED=0 GOOS=linux go build -ldflags '-s $(ldflags)' -a -installsuffix static github.com/sky-uk/merlin/cmd/merlin
+	CGO_ENABLED=0 GOOS=linux go build -ldflags '-s $(ldflags)' -a -installsuffix static github.com/sky-uk/merlin/cmd/meradm
 
 install :
 	@echo "== install"
-	@go install -race -v ./cmd/merlin
-	@go install -v ./cmd/meradm
+	@go install -race -v -ldflags '$(ldflags)' ./cmd/merlin
+	@go install -v -ldflags '$(ldflags)' ./cmd/meradm
 
 unformatted = $(shell goimports -l $(files))
 
@@ -62,10 +67,6 @@ test : install
 proto :
 	@echo "== compiling proto files"
 	protoc --go_out=plugins=grpc:. types/types.proto
-
-git_rev := $(shell git rev-parse --short HEAD)
-git_tag := $(shell git tag --points-at=$(git_rev))
-image := skycirrus/merlin
 
 docker : build-release
 	@echo "== build"
