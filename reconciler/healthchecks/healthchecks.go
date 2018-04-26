@@ -261,41 +261,39 @@ func (c *check) performHealthCheck() {
 	resp, err := client.Get(serverURL.String())
 	if err != nil {
 		log.Infof("%s inaccessible: %v", serverURL, err)
-		c.incrementDown()
+		c.markServerDown()
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || 300 <= resp.StatusCode {
 		body, _ := ioutil.ReadAll(resp.Body)
 		log.Infof("%s returned %d: %s", serverURL, resp.StatusCode, string(body))
-		c.incrementDown()
+		c.markServerDown()
 		return
 	}
-	c.incrementUp()
+	c.markServerUp()
 }
 
-func (c *check) incrementUp() {
-	c.state.increment(ServerDown, ServerUp, c.healthCheck.UpThreshold)
+func (c *check) markServerDown() {
+	c.state.resetOrIncrement(ServerUp, ServerDown, c.healthCheck.DownThreshold)
 }
 
-func (c *check) incrementDown() {
-	c.state.increment(ServerUp, ServerDown, c.healthCheck.DownThreshold)
+func (c *check) markServerUp() {
+	c.state.resetOrIncrement(ServerDown, ServerUp, c.healthCheck.UpThreshold)
 }
 
-func (s *checkState) increment(current, next ServerStatus, transitionThreshold uint32) {
+func (s *checkState) resetOrIncrement(incrementStatus, nextStatus ServerStatus, transitionThreshold uint32) {
 	s.Lock()
 	defer s.Unlock()
-	switch s.status {
-	case current:
-		s.transitionCount++
-		if s.transitionCount >= transitionThreshold {
-			s.status = next
-			s.transitionCount = 0
-			s.transitionFn(s.status)
-		}
-	case next:
+	if s.status != incrementStatus {
 		s.transitionCount = 0
-	default:
-		panic("bug: unrecognized status")
+		return
+	}
+
+	s.transitionCount++
+	if s.transitionCount >= transitionThreshold {
+		s.status = nextStatus
+		s.transitionCount = 0
+		s.transitionFn(s.status)
 	}
 }
