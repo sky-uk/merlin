@@ -94,11 +94,35 @@ func (r *reconciler) initializeHealthChecks() error {
 			return fmt.Errorf("failed to query store when initializing: %v", err)
 		}
 		for _, server := range servers {
-			r.checker.SetHealthCheck(server.ServiceID, server.Key, server.HealthCheck)
+			fn := r.createHealthStateWeightUpdater(service.Key, server)
+			r.checker.SetHealthCheck(server.ServiceID, server.Key, server.HealthCheck, fn)
 		}
 	}
 
 	return nil
+}
+
+func (r *reconciler) createHealthStateWeightUpdater(serviceKey *types.VirtualService_Key,
+	originalServer *types.RealServer) healthchecks.TransitionFunc {
+
+	// clone the original server, to protect against external mutation
+	server := proto.Clone(originalServer).(*types.RealServer)
+
+	return func(state healthchecks.ServerStatus) {
+		serverCopy := proto.Clone(server).(*types.RealServer)
+		switch state {
+		case healthchecks.ServerDown:
+			serverCopy.Config.Weight = &wrappers.UInt32Value{Value: 0}
+		case healthchecks.ServerUp:
+			// change nothing - restore the original weight
+		default:
+			panic("unexpected state")
+		}
+
+		if err := r.ipvs.UpdateServer(serviceKey, serverCopy); err != nil {
+			log.Warnf("Unable to update the weight for %v: %v", serverCopy, err)
+		}
+	}
 }
 
 func (r *reconciler) Stop() {
@@ -174,7 +198,8 @@ func (r *reconciler) reconcile() {
 			}
 
 			// update health check
-			r.checker.SetHealthCheck(desiredServer.ServiceID, desiredServer.Key, desiredServer.HealthCheck)
+			fn := r.createHealthStateWeightUpdater(desiredService.Key, desiredServer)
+			r.checker.SetHealthCheck(desiredServer.ServiceID, desiredServer.Key, desiredServer.HealthCheck, fn)
 			if r.checker.IsDown(desiredServer.ServiceID, desiredServer.Key) {
 				desiredServer.Config.Weight = &wrappers.UInt32Value{Value: 0}
 			}

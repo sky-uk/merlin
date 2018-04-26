@@ -15,6 +15,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
+	"github.com/sky-uk/merlin/reconciler/healthchecks"
 	"github.com/sky-uk/merlin/types"
 	"github.com/stretchr/testify/mock"
 )
@@ -27,86 +28,188 @@ func TestReconciler(t *testing.T) {
 type servers map[*types.VirtualService][]*types.RealServer
 
 var _ = Describe("Reconciler", func() {
-	// test fixtures
-	svcKey1 := &types.VirtualService_Key{
-		Ip:       "10.10.10.1",
-		Port:     101,
-		Protocol: types.Protocol_TCP,
-	}
-	svc1 := &types.VirtualService{
-		Id:  "svc1",
-		Key: svcKey1,
-		Config: &types.VirtualService_Config{
-			Scheduler: "sh",
-			Flags:     []string{"flag-1", "flag-2"},
-		},
-	}
-	svc1Updated := proto.Clone(svc1).(*types.VirtualService)
-	svc1Updated.Config = &types.VirtualService_Config{
-		Scheduler: "wrr",
-		Flags:     []string{"flag-3"},
-	}
-	svc1ReorderedFlags := proto.Clone(svc1).(*types.VirtualService)
-	svc1ReorderedFlags.Config = &types.VirtualService_Config{
-		Scheduler: "sh",
-		Flags:     []string{"flag-2", "flag-1"},
-	}
-	svcKey2 := &types.VirtualService_Key{
-		Ip:       "10.10.10.2",
-		Port:     102,
-		Protocol: types.Protocol_UDP,
-	}
-	svc2 := &types.VirtualService{
-		Key: svcKey2,
-		Config: &types.VirtualService_Config{
-			Scheduler: "rr",
-			Flags:     []string{"flag-1"},
-		},
-		Id: "svc2",
-	}
 
-	serverKey1 := &types.RealServer_Key{
-		Ip:   "172.16.1.1",
-		Port: 501,
-	}
-	server1 := &types.RealServer{
-		Key: serverKey1,
-		Config: &types.RealServer_Config{
-			Weight:  &wrappers.UInt32Value{Value: 1},
-			Forward: types.ForwardMethod_ROUTE,
-		},
-		HealthCheck: &types.RealServer_HealthCheck{
-			Endpoint:      &wrappers.StringValue{Value: "http://:102/health"},
-			Period:        ptypes.DurationProto(10 * time.Second),
-			Timeout:       ptypes.DurationProto(2 * time.Second),
-			UpThreshold:   2,
-			DownThreshold: 1,
-		},
-	}
-	server1Updated := proto.Clone(server1).(*types.RealServer)
-	server1Updated.Config.Weight.Value = 0
-	serverKey2 := &types.RealServer_Key{
-		Ip:   "172.16.1.2",
-		Port: 502,
-	}
-	server2 := &types.RealServer{
-		Key: serverKey2,
-		Config: &types.RealServer_Config{
-			Weight:  &wrappers.UInt32Value{Value: 1},
-			Forward: types.ForwardMethod_ROUTE,
-		},
-		HealthCheck: &types.RealServer_HealthCheck{
-			Endpoint:      &wrappers.StringValue{Value: "http://:304/healme"},
-			Period:        ptypes.DurationProto(30 * time.Second),
-			Timeout:       ptypes.DurationProto(1 * time.Second),
-			UpThreshold:   4,
-			DownThreshold: 2,
-		},
-	}
-	disabledServer2 := proto.Clone(server2).(*types.RealServer)
-	disabledServer2.Config.Weight.Value = 0
+	var (
+		service *types.VirtualService
+		server  *types.RealServer
+	)
+
+	BeforeEach(func() {
+		service = &types.VirtualService{
+			Id: "svc1",
+			Key: &types.VirtualService_Key{
+				Ip:       "10.10.10.1",
+				Port:     101,
+				Protocol: types.Protocol_TCP,
+			},
+			Config: &types.VirtualService_Config{
+				Scheduler: "sh",
+				Flags:     []string{"flag-1", "flag-2"},
+			},
+		}
+		server = &types.RealServer{
+			ServiceID: service.Id,
+			Key: &types.RealServer_Key{
+				Ip:   "172.16.1.1",
+				Port: 8080,
+			},
+			Config: &types.RealServer_Config{
+				Weight: &wrappers.UInt32Value{Value: 1},
+			},
+			HealthCheck: &types.RealServer_HealthCheck{
+				Endpoint:      &wrappers.StringValue{Value: "http://:102/health"},
+				Period:        ptypes.DurationProto(10 * time.Second),
+				Timeout:       ptypes.DurationProto(2 * time.Second),
+				UpThreshold:   2,
+				DownThreshold: 1,
+			},
+		}
+	})
+
+	Describe("Start/Stop", func() {
+		It("should add health checks for existing real servers on start", func() {
+			storeMock := &storeMock{}
+			checkerMock := &checkerMock{}
+			r := New(math.MaxInt64, storeMock, nil).(*reconciler)
+			r.checker = checkerMock
+			server2 := proto.Clone(server).(*types.RealServer)
+			server2.Key.Ip = "172.16.1.2"
+
+			storeServices := []*types.VirtualService{service}
+			storeMock.On("ListServices", mock.Anything).Return(storeServices, nil)
+			storeServers := []*types.RealServer{server, server2}
+			storeMock.On("ListServers", mock.Anything, service.Id).Return(storeServers, nil)
+
+			checkerMock.On("SetHealthCheck", service.Id, server.Key, server.HealthCheck,
+				mock.AnythingOfType("healthchecks.TransitionFunc")).Return(nil)
+			checkerMock.On("SetHealthCheck", service.Id, server2.Key, server2.HealthCheck,
+				mock.AnythingOfType("healthchecks.TransitionFunc")).Return(nil)
+			checkerMock.On("Stop").Return(nil)
+
+			err := r.Start()
+			Expect(err).ToNot(HaveOccurred())
+			r.Stop()
+
+			checkerMock.AssertExpectations(GinkgoT())
+		})
+	})
+
+	Describe("HealthStateWeightUpdater", func() {
+		var (
+			store *storeMock
+			ipvs  *ipvsMock
+			r     *reconciler
+		)
+
+		BeforeEach(func() {
+			store = &storeMock{}
+			ipvs = &ipvsMock{}
+			r = New(math.MaxInt64, store, ipvs).(*reconciler)
+		})
+
+		It("should set the weight to 0 on down transition", func() {
+			disabledServer := proto.Clone(server).(*types.RealServer)
+			disabledServer.Config.Weight = &wrappers.UInt32Value{Value: 0}
+			ipvs.On("UpdateServer", service.Key, disabledServer).Return(nil)
+
+			fn := r.createHealthStateWeightUpdater(service.Key, server)
+			fn(healthchecks.ServerDown)
+
+			ipvs.AssertExpectations(GinkgoT())
+		})
+
+		It("should set the weight to original on up transition", func() {
+			ipvs.On("UpdateServer", service.Key, server).Return(nil)
+
+			fn := r.createHealthStateWeightUpdater(service.Key, server)
+			fn(healthchecks.ServerUp)
+
+			ipvs.AssertExpectations(GinkgoT())
+		})
+	})
 
 	Describe("reconcile", func() {
+		// Test fixtures for reconcile function.
+		// We have to create these from scratch, as the Describe func() is evaluated prior to BeforeEach,
+		// so our TableEntries can't refer to data created in a BeforeEach.
+		svcKey1 := &types.VirtualService_Key{
+			Ip:       "10.10.10.1",
+			Port:     101,
+			Protocol: types.Protocol_TCP,
+		}
+		svc1 := &types.VirtualService{
+			Id:  "svc1",
+			Key: svcKey1,
+			Config: &types.VirtualService_Config{
+				Scheduler: "sh",
+				Flags:     []string{"flag-1", "flag-2"},
+			},
+		}
+		svc1Updated := proto.Clone(svc1).(*types.VirtualService)
+		svc1Updated.Config = &types.VirtualService_Config{
+			Scheduler: "wrr",
+			Flags:     []string{"flag-3"},
+		}
+		svc1ReorderedFlags := proto.Clone(svc1).(*types.VirtualService)
+		svc1ReorderedFlags.Config = &types.VirtualService_Config{
+			Scheduler: "sh",
+			Flags:     []string{"flag-2", "flag-1"},
+		}
+		svcKey2 := &types.VirtualService_Key{
+			Ip:       "10.10.10.2",
+			Port:     102,
+			Protocol: types.Protocol_UDP,
+		}
+		svc2 := &types.VirtualService{
+			Key: svcKey2,
+			Config: &types.VirtualService_Config{
+				Scheduler: "rr",
+				Flags:     []string{"flag-1"},
+			},
+			Id: "svc2",
+		}
+
+		serverKey1 := &types.RealServer_Key{
+			Ip:   "172.16.1.1",
+			Port: 501,
+		}
+		server1 := &types.RealServer{
+			Key: serverKey1,
+			Config: &types.RealServer_Config{
+				Weight:  &wrappers.UInt32Value{Value: 1},
+				Forward: types.ForwardMethod_ROUTE,
+			},
+			HealthCheck: &types.RealServer_HealthCheck{
+				Endpoint:      &wrappers.StringValue{Value: "http://:102/health"},
+				Period:        ptypes.DurationProto(10 * time.Second),
+				Timeout:       ptypes.DurationProto(2 * time.Second),
+				UpThreshold:   2,
+				DownThreshold: 1,
+			},
+		}
+		server1Updated := proto.Clone(server1).(*types.RealServer)
+		server1Updated.Config.Weight.Value = 0
+		serverKey2 := &types.RealServer_Key{
+			Ip:   "172.16.1.2",
+			Port: 502,
+		}
+		server2 := &types.RealServer{
+			Key: serverKey2,
+			Config: &types.RealServer_Config{
+				Weight:  &wrappers.UInt32Value{Value: 1},
+				Forward: types.ForwardMethod_ROUTE,
+			},
+			HealthCheck: &types.RealServer_HealthCheck{
+				Endpoint:      &wrappers.StringValue{Value: "http://:304/healme"},
+				Period:        ptypes.DurationProto(30 * time.Second),
+				Timeout:       ptypes.DurationProto(1 * time.Second),
+				UpThreshold:   4,
+				DownThreshold: 2,
+			},
+		}
+		disabledServer2 := proto.Clone(server2).(*types.RealServer)
+		disabledServer2.Config.Weight.Value = 0
+
 		type reconcileCase struct {
 			// services
 			actualServices  []*types.VirtualService
@@ -270,7 +373,8 @@ var _ = Describe("Reconciler", func() {
 			// health checker
 			for _, servers := range c.desiredServers {
 				for _, server := range servers {
-					checkerMock.On("SetHealthCheck", server.ServiceID, server.Key, server.HealthCheck).Return(nil)
+					checkerMock.On("SetHealthCheck", server.ServiceID, server.Key, server.HealthCheck,
+						mock.AnythingOfType("healthchecks.TransitionFunc")).Return(nil)
 				}
 			}
 			for service, servers := range c.deletedServers {
@@ -303,32 +407,6 @@ var _ = Describe("Reconciler", func() {
 			checkerMock.AssertExpectations(GinkgoT())
 		},
 			cases...)
-	})
-
-	Describe("Start/Stop", func() {
-		It("should add health checks for existing real servers on start", func() {
-			storeMock := &storeMock{}
-			checkerMock := &checkerMock{}
-			r := New(math.MaxInt64, storeMock, nil).(*reconciler)
-			r.checker = checkerMock
-
-			storeServices := []*types.VirtualService{svc1}
-			storeMock.On("ListServices", mock.Anything).Return(storeServices, nil)
-			server1.ServiceID = svc1.Id
-			server2.ServiceID = svc1.Id
-			storeServers := []*types.RealServer{server1, server2}
-			storeMock.On("ListServers", mock.Anything, svc1.Id).Return(storeServers, nil)
-
-			checkerMock.On("SetHealthCheck", svc1.Id, server1.Key, server1.HealthCheck).Return(nil)
-			checkerMock.On("SetHealthCheck", svc1.Id, server2.Key, server2.HealthCheck).Return(nil)
-			checkerMock.On("Stop").Return(nil)
-
-			err := r.Start()
-			Expect(err).ToNot(HaveOccurred())
-			r.Stop()
-
-			checkerMock.AssertExpectations(GinkgoT())
-		})
 	})
 })
 
@@ -423,8 +501,9 @@ func (m *checkerMock) IsDown(serviceID string, key *types.RealServer_Key) bool {
 	return args.Bool(0)
 }
 
-func (m *checkerMock) SetHealthCheck(serviceID string, key *types.RealServer_Key, check *types.RealServer_HealthCheck) error {
-	args := m.Called(serviceID, key, check)
+func (m *checkerMock) SetHealthCheck(serviceID string, key *types.RealServer_Key, check *types.RealServer_HealthCheck,
+	transitionFunc healthchecks.TransitionFunc) error {
+	args := m.Called(serviceID, key, check, transitionFunc)
 	return args.Error(0)
 }
 
