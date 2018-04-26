@@ -241,9 +241,13 @@ func (s *server) UpdateServer(ctx context.Context, update *types.RealServer) (*e
 	next := proto.Clone(prev).(*types.RealServer)
 	proto.Merge(next.Config, update.Config)
 	proto.Merge(next.HealthCheck, update.HealthCheck)
-	// force update of endpoint if set - so users can disable by setting a nil value on the endpoint
+	// force update of endpoint if set - so users can disable by setting an empty value on the endpoint
 	if update.GetHealthCheck().GetEndpoint() != nil {
 		next.HealthCheck.Endpoint = update.HealthCheck.Endpoint
+	}
+	// force update if weight is set - so users can disable by setting weight to 0
+	if update.GetConfig().GetWeight() != nil {
+		next.Config.Weight = update.Config.Weight
 	}
 
 	if proto.Equal(prev, next) {

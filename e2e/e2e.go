@@ -23,6 +23,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	. "github.com/onsi/gomega"
 )
 
 const (
@@ -156,7 +158,7 @@ func StartEtcd() {
 }
 
 func StopEtcd() {
-	stopServer(etcd)
+	stopServer(etcd, false)
 	os.RemoveAll(dataDir)
 }
 
@@ -209,7 +211,7 @@ func StartMerlin() {
 }
 
 func StopMerlin() {
-	stopServer(merlin)
+	stopServer(merlin, true)
 }
 
 func waitForServerToStart(name, port, healthPath string) {
@@ -238,12 +240,15 @@ func waitForServerToStart(name, port, healthPath string) {
 	panic(name + " did not start up")
 }
 
-func stopServer(cmd *exec.Cmd) {
+func stopServer(cmd *exec.Cmd, checkExitCode bool) {
 	if cmd.Process != nil {
 		cmd.Process.Signal(syscall.SIGTERM)
 	}
-	if err := cmd.Wait(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	err := cmd.Wait()
+	if checkExitCode {
+		Expect(err).ToNot(HaveOccurred(), cmd.Path+" exited with unexpected error")
+	} else {
+		fmt.Fprintf(os.Stderr, "%s exited with %v (ignored)\n", cmd.Path, err)
 	}
 }
 

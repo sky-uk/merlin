@@ -132,7 +132,9 @@ func (s *srv) Start() {
 func (s *srv) Stop() error {
 	close(s.subscribeStopCh)
 	s.reconciler.Stop()
-	s.ipvs.Close()
+	if s.ipvs != nil {
+		s.ipvs.Close()
+	}
 	s.grpcServer.GracefulStop()
 	log.Infof("Stopped merlin")
 	return nil

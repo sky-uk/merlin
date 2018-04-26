@@ -11,6 +11,7 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
+	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/golang/protobuf/ptypes/wrappers"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
@@ -430,12 +431,35 @@ var _ = Describe("API", func() {
 
 				_, err = client.UpdateServer(ctx, update)
 				Expect(err).ToNot(HaveOccurred())
+
+				resp, err := client.List(ctx, &empty.Empty{})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(resp.Items).To(HaveLen(1))
+				item := resp.Items[0]
+				Expect(item.Servers).To(HaveLen(1))
+				actualServer := item.Servers[0]
+				proto.Merge(server, update)
+				// Expect endpoint and weight to be updated even if they are set to default values.
+				if update.GetHealthCheck().GetEndpoint() != nil {
+					server.HealthCheck.Endpoint = update.HealthCheck.Endpoint
+				}
+				if update.GetConfig().GetWeight() != nil {
+					server.Config.Weight = update.Config.Weight
+				}
+				Expect(server).To(Equal(actualServer))
 			},
 				Entry("change weight", &types.RealServer{
 					ServiceID: service.Id,
 					Key:       validServerKey,
 					Config: &types.RealServer_Config{
 						Weight: &wrappers.UInt32Value{4},
+					},
+				}),
+				Entry("set weight to 0", &types.RealServer{
+					ServiceID: service.Id,
+					Key:       validServerKey,
+					Config: &types.RealServer_Config{
+						Weight: &wrappers.UInt32Value{0},
 					},
 				}),
 				Entry("change forward", &types.RealServer{
@@ -450,6 +474,13 @@ var _ = Describe("API", func() {
 					Key:       validServerKey,
 					HealthCheck: &types.RealServer_HealthCheck{
 						Endpoint: &wrappers.StringValue{Value: "http://:999/health2"},
+					},
+				}),
+				Entry("unset health check endpoint", &types.RealServer{
+					ServiceID: service.Id,
+					Key:       validServerKey,
+					HealthCheck: &types.RealServer_HealthCheck{
+						Endpoint: &wrappers.StringValue{Value: ""},
 					},
 				}),
 				Entry("change health check period", &types.RealServer{
