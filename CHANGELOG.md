@@ -1,7 +1,3 @@
-# 0.1.3
-
-* Update weights immediately when healthcheck state changes.
-
 # 0.1.2
 
 * Swap to github.com/docker/libnetwork for IPVS, to improve stability.
