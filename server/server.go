@@ -87,7 +87,7 @@ func (s *server) CreateService(ctx context.Context, service *types.VirtualServic
 		return emptyResponse, fmt.Errorf("failed to create service: %v", err)
 	}
 
-	log.Infof("Created virtual service: %v", service)
+	log.Infof("Created virtual service: %v", service.PrettyString())
 	return emptyResponse, nil
 }
 
@@ -120,7 +120,7 @@ func (s *server) UpdateService(ctx context.Context, update *types.VirtualService
 		return emptyResponse, fmt.Errorf("failed to update service: %v", err)
 	}
 
-	log.Infof("Updated %v", next)
+	log.Infof("Updated %v", next.PrettyString())
 	return emptyResponse, nil
 }
 
@@ -224,7 +224,7 @@ func (s *server) CreateServer(ctx context.Context, server *types.RealServer) (*e
 		return emptyResponse, fmt.Errorf("failed to create server: %v", err)
 	}
 
-	log.Infof("Created real server: %v", server)
+	log.Infof("Created real server: %v", server.PrettyString())
 	return emptyResponse, nil
 }
 
@@ -251,7 +251,7 @@ func (s *server) UpdateServer(ctx context.Context, update *types.RealServer) (*e
 	}
 
 	if proto.Equal(prev, next) {
-		log.Infof("No update of %s/%s", update.ServiceID, update.Key)
+		log.Infof("No update of %s/%s", update.ServiceID, update.Key.PrettyString())
 		return emptyResponse, nil
 	}
 
@@ -263,7 +263,7 @@ func (s *server) UpdateServer(ctx context.Context, update *types.RealServer) (*e
 		return emptyResponse, fmt.Errorf("failed to update server: %v", err)
 	}
 
-	log.Infof("Updated %v", next)
+	log.Infof("Updated %v", next.PrettyString())
 	return emptyResponse, nil
 }
 
@@ -271,7 +271,7 @@ func (s *server) DeleteServer(ctx context.Context, server *types.RealServer) (*e
 	if err := s.store.DeleteServer(ctx, server.ServiceID, server.Key); err != nil {
 		return emptyResponse, fmt.Errorf("failed to delete server %s: %v", server, err)
 	}
-	log.Infof("Deleted %s/%s", server.ServiceID, server.Key)
+	log.Infof("Deleted %s/%s", server.ServiceID, server.Key.PrettyString())
 	return emptyResponse, nil
 }
 

@@ -212,7 +212,7 @@ func (c *checker) Stop() {
 
 // check a real server and update its status
 func (c *check) healthCheckLoop() {
-	log.Infof("Starting health check for %s: %v", c.serverIP, c.healthCheck)
+	log.Infof("Starting health check for %s: [%v]", c.serverIP, c.healthCheck.PrettyString())
 
 	// perform first health check immediately
 	c.performHealthCheck()
