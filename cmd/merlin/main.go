@@ -1,8 +1,6 @@
 package main
 
 import (
-	"flag"
-
 	_ "net/http/pprof"
 
 	"fmt"
@@ -12,9 +10,8 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"syscall"
-
 	"strings"
+	"syscall"
 	"time"
 
 	"context"
@@ -27,42 +24,62 @@ import (
 	"github.com/sky-uk/merlin/server"
 	"github.com/sky-uk/merlin/store"
 	"github.com/sky-uk/merlin/types"
+	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
+var rootCmd = &cobra.Command{
+	Use:   "merlin",
+	Short: "Distributed IPVS manager.",
+	Run:   startMerlin,
+}
+
 var (
-	debug               bool
+	debugLogs           bool
 	port                int
 	healthPort          int
 	storeEndpoints      string
 	storePrefix         string
 	reconcileSyncPeriod time.Duration
 	reconcile           bool
+	// Version of merlin.
+	Version string
+	// BuildTime of merlin.
+	BuildTime string
 )
 
 func init() {
-	flag.BoolVar(&debug, "debug", false, "enable debug logs")
-	flag.IntVar(&port, "port", 4282, "server port")
-	flag.IntVar(&healthPort, "health-port", 4283, "/health, /alive, /metrics, and /debug endpoints")
-	flag.StringVar(&storeEndpoints, "store-endpoints", "", "comma delimited list of etcd2 endpoints")
-	flag.StringVar(&storePrefix, "store-prefix", "/merlin", "prefix to store state")
-	flag.DurationVar(&reconcileSyncPeriod, "reconcile-sync-period", time.Minute, "how often to periodically sync ipvs state")
-	flag.BoolVar(&reconcile, "reconcile", true, "if enabled, merlin will reconcile local ipvs with store state")
+	cobra.OnInitialize(initLogs)
+	rootCmd.Version = fmt.Sprintf("%s (%s)", Version, BuildTime)
+	f := rootCmd.PersistentFlags()
+	f.BoolVar(&debugLogs, "debug", false, "enable debug logs")
+	f.IntVar(&port, "port", 4282, "server port")
+	f.IntVar(&healthPort, "health-port", 4283, "/health, /alive, /metrics, and /debug endpoints")
+	f.StringVar(&storeEndpoints, "store-endpoints", "", "comma delimited list of etcd2 endpoints")
+	f.StringVar(&storePrefix, "store-prefix", "/merlin", "prefix to store state")
+	f.DurationVar(&reconcileSyncPeriod, "reconcile-sync-period", time.Minute, "how often to periodically sync ipvs state")
+	f.BoolVar(&reconcile, "reconcile", true, "if enabled, merlin will reconcile local ipvs with store state")
 }
 
 func main() {
-	flag.Parse()
+	if err := rootCmd.Execute(); err != nil {
+		os.Exit(1)
+	}
+}
 
-	if debug {
+func initLogs() {
+	if debugLogs {
 		log.SetLevel(log.DebugLevel)
 		log.Debug("Debug logs on")
 	}
 	filenameHook := filename.NewHook()
 	filenameHook.Field = "source"
 	log.AddHook(filenameHook)
+}
 
+func startMerlin(_ *cobra.Command, _ []string) {
 	srv := &srv{}
 	srv.Start()
 	addSignalHandler(srv)

@@ -5,6 +5,8 @@ import (
 
 	"os"
 
+	"fmt"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -19,10 +21,15 @@ var (
 	host    string
 	port    uint16
 	timeout time.Duration
+	// Version of meradm.
+	Version string
+	// BuildTime of meradm.
+	BuildTime string
 )
 
 func init() {
 	cobra.OnInitialize(initLogs)
+	rootCmd.Version = fmt.Sprintf("%s (%s)", Version, BuildTime)
 	f := rootCmd.PersistentFlags()
 	f.BoolVarP(&debug, "debug", "X", false, "enable debug logging")
 	f.StringVarP(&host, "host", "H", "localhost", "merlin host to connect to")

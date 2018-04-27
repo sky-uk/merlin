@@ -184,11 +184,11 @@ func StartMerlin() {
 	merlinHealthPort = strconv.Itoa(ports[1])
 
 	merlin = exec.Command("merlin",
-		"-port="+merlinPort,
-		"-health-port="+merlinHealthPort,
-		"-store-endpoints=http://127.0.0.1:"+etcdListenPort,
-		"-reconcile=false",
-		"-debug")
+		"--port="+merlinPort,
+		"--health-port="+merlinHealthPort,
+		"--store-endpoints=http://127.0.0.1:"+etcdListenPort,
+		"--reconcile=false",
+		"--debug")
 
 	// wire up pipes so we can save and assert on output, while preserving stderr/stdout
 	prOut, pwOut := io.Pipe()
