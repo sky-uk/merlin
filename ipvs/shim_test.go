@@ -8,6 +8,8 @@ import (
 	"net"
 	"syscall"
 
+	"context"
+
 	"github.com/docker/libnetwork/ipvs"
 	"github.com/golang/protobuf/ptypes/wrappers"
 	. "github.com/onsi/ginkgo"
@@ -22,77 +24,79 @@ func TestIPVS(t *testing.T) {
 	RunSpecs(t, "IPVS Shim Suite")
 }
 
-var (
-	ipvsShim IPVS
-	hMock    *handleMock
-	svc      *types.VirtualService
-	hSvc     *ipvs.Service
-	hSvcKey  *ipvs.Service
-	server   *types.RealServer
-	hDest    *ipvs.Destination
-	hDestKey *ipvs.Destination
-)
-
-var _ = BeforeEach(func() {
-	hMock = &handleMock{}
-	ipvsShim = &shim{handle: hMock}
-
-	// virtual service fixtures
-	svc = &types.VirtualService{
-		Key: &types.VirtualService_Key{
-			Ip:       "10.10.10.10",
-			Port:     555,
-			Protocol: types.Protocol_TCP,
-		},
-		Config: &types.VirtualService_Config{
-			Scheduler: "sh",
-			Flags:     []string{"flag-2", "flag-3"},
-		},
-	}
-	hSvc = &ipvs.Service{
-		Address:       net.ParseIP("10.10.10.10"),
-		Protocol:      syscall.IPPROTO_TCP,
-		Port:          555,
-		AddressFamily: syscall.AF_INET,
-		SchedName:     "sh",
-		Flags:         ipVsSvcFSched2 | ipVsSvcFSched3,
-	}
-	hSvcCopy := *hSvc
-	hSvcKey = &hSvcCopy
-	hSvcKey.SchedName = ""
-	hSvcKey.Flags = 0
-
-	// real server fixtures
-	server = &types.RealServer{
-		Key: &types.RealServer_Key{
-			Ip:   "172.16.10.10",
-			Port: 999,
-		},
-		Config: &types.RealServer_Config{
-			Weight:  &wrappers.UInt32Value{Value: 2},
-			Forward: types.ForwardMethod_MASQ,
-		},
-	}
-	hDest = &ipvs.Destination{
-		Address:         net.ParseIP("172.16.10.10"),
-		Port:            999,
-		AddressFamily:   syscall.AF_INET,
-		ConnectionFlags: ipvs.ConnectionFlagMasq,
-		Weight:          2,
-	}
-	hDestCopy := *hDest
-	hDestKey = &hDestCopy
-	hDestKey.ConnectionFlags = 0
-	hDestKey.Weight = 0
-})
-
 var _ = Describe("IPVS Shim", func() {
+
+	var (
+		ipvsShim IPVS
+		hMock    *handleMock
+		svc      *types.VirtualService
+		hSvc     *ipvs.Service
+		hSvcKey  *ipvs.Service
+		server   *types.RealServer
+		hDest    *ipvs.Destination
+		hDestKey *ipvs.Destination
+		ctx      context.Context
+	)
+
+	BeforeEach(func() {
+		hMock = &handleMock{}
+		ipvsShim = &shim{handle: hMock}
+
+		// virtual service fixtures
+		svc = &types.VirtualService{
+			Key: &types.VirtualService_Key{
+				Ip:       "10.10.10.10",
+				Port:     555,
+				Protocol: types.Protocol_TCP,
+			},
+			Config: &types.VirtualService_Config{
+				Scheduler: "sh",
+				Flags:     []string{"flag-2", "flag-3"},
+			},
+		}
+		hSvc = &ipvs.Service{
+			Address:       net.ParseIP("10.10.10.10"),
+			Protocol:      syscall.IPPROTO_TCP,
+			Port:          555,
+			AddressFamily: syscall.AF_INET,
+			SchedName:     "sh",
+			Flags:         ipVsSvcFSched2 | ipVsSvcFSched3,
+		}
+		hSvcCopy := *hSvc
+		hSvcKey = &hSvcCopy
+		hSvcKey.SchedName = ""
+		hSvcKey.Flags = 0
+
+		// real server fixtures
+		server = &types.RealServer{
+			Key: &types.RealServer_Key{
+				Ip:   "172.16.10.10",
+				Port: 999,
+			},
+			Config: &types.RealServer_Config{
+				Weight:  &wrappers.UInt32Value{Value: 2},
+				Forward: types.ForwardMethod_MASQ,
+			},
+		}
+		hDest = &ipvs.Destination{
+			Address:         net.ParseIP("172.16.10.10"),
+			Port:            999,
+			AddressFamily:   syscall.AF_INET,
+			ConnectionFlags: ipvs.ConnectionFlagMasq,
+			Weight:          2,
+		}
+		hDestCopy := *hDest
+		hDestKey = &hDestCopy
+		hDestKey.ConnectionFlags = 0
+		hDestKey.Weight = 0
+		ctx = context.Background()
+	})
 
 	Describe("AddService", func() {
 		It("should add to libipvs", func() {
 			hMock.On("NewService", hSvc).Return(nil)
 
-			err := ipvsShim.AddService(svc)
+			err := ipvsShim.AddService(ctx, svc)
 
 			Expect(err).ToNot(HaveOccurred())
 			hMock.AssertExpectations(GinkgoT())
@@ -104,7 +108,7 @@ var _ = Describe("IPVS Shim", func() {
 
 			hMock.On("NewService", hSvc).Return(nil)
 
-			err := ipvsShim.AddService(svc)
+			err := ipvsShim.AddService(ctx, svc)
 
 			Expect(err).ToNot(HaveOccurred())
 			hMock.AssertExpectations(GinkgoT())
@@ -128,7 +132,7 @@ var _ = Describe("IPVS Shim", func() {
 			hSvc.Protocol = syscall.IPPROTO_UDP
 			hMock.On("NewService", hSvc).Return(nil)
 
-			err := ipvsShim.AddService(svc)
+			err := ipvsShim.AddService(ctx, svc)
 
 			Expect(err).ToNot(HaveOccurred())
 			hMock.AssertExpectations(GinkgoT())
@@ -139,7 +143,7 @@ var _ = Describe("IPVS Shim", func() {
 		It("should update in libipvs", func() {
 			hMock.On("UpdateService", hSvc).Return(nil)
 
-			err := ipvsShim.UpdateService(svc)
+			err := ipvsShim.UpdateService(ctx, svc)
 
 			Expect(err).ToNot(HaveOccurred())
 			hMock.AssertExpectations(GinkgoT())
@@ -152,7 +156,7 @@ var _ = Describe("IPVS Shim", func() {
 
 			hSvc.SchedName = ""
 			hSvc.Flags = 0
-			err := ipvsShim.DeleteService(svc.Key)
+			err := ipvsShim.DeleteService(ctx, svc.Key)
 
 			Expect(err).ToNot(HaveOccurred())
 			hMock.AssertExpectations(GinkgoT())
@@ -164,7 +168,7 @@ var _ = Describe("IPVS Shim", func() {
 			hSvcs := []*ipvs.Service{hSvc}
 			hMock.On("GetServices").Return(hSvcs, nil)
 
-			svcs, err := ipvsShim.ListServices()
+			svcs, err := ipvsShim.ListServices(ctx)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(svcs).To(HaveLen(1))
@@ -176,7 +180,7 @@ var _ = Describe("IPVS Shim", func() {
 		It("should add to libipvs", func() {
 			hMock.On("NewDestination", hSvcKey, hDest).Return(nil)
 
-			err := ipvsShim.AddServer(svc.Key, server)
+			err := ipvsShim.AddServer(ctx, svc.Key, server)
 
 			Expect(err).ToNot(HaveOccurred())
 			hMock.AssertExpectations(GinkgoT())
@@ -187,7 +191,7 @@ var _ = Describe("IPVS Shim", func() {
 		It("should update in libipvs", func() {
 			hMock.On("UpdateDestination", hSvcKey, hDest).Return(nil)
 
-			err := ipvsShim.UpdateServer(svc.Key, server)
+			err := ipvsShim.UpdateServer(ctx, svc.Key, server)
 
 			Expect(err).ToNot(HaveOccurred())
 			hMock.AssertExpectations(GinkgoT())
@@ -198,7 +202,7 @@ var _ = Describe("IPVS Shim", func() {
 		It("should delete in libipvs", func() {
 			hMock.On("DelDestination", hSvcKey, hDestKey).Return(nil)
 
-			err := ipvsShim.DeleteServer(svc.Key, server)
+			err := ipvsShim.DeleteServer(ctx, svc.Key, server)
 
 			Expect(err).ToNot(HaveOccurred())
 			hMock.AssertExpectations(GinkgoT())
@@ -209,7 +213,7 @@ var _ = Describe("IPVS Shim", func() {
 		It("should list all the destinations in libipvs", func() {
 			hMock.On("GetDestinations", hSvcKey).Return([]*ipvs.Destination{hDest}, nil)
 
-			servers, err := ipvsShim.ListServers(svc.Key)
+			servers, err := ipvsShim.ListServers(ctx, svc.Key)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(servers).To(HaveLen(1))
