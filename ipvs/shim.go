@@ -90,14 +90,10 @@ func (s *shim) AddService(ctx context.Context, svc *types.VirtualService) error 
 		return err
 	}
 
-	c := make(chan error, 1)
-	go func() { c <- s.handle.NewService(ipvsSvc) }()
-	select {
-	case <-ctx.Done():
-		return fmt.Errorf("timeout waiting for netlink NewService, possible goroutine leak (%v)", ctx.Err())
-	case err := <-c:
-		return err
-	}
+	_, err = performAsync(ctx, func() (interface{}, error) {
+		return nil, s.handle.NewService(ipvsSvc)
+	})
+	return err
 }
 
 func (s *shim) UpdateService(ctx context.Context, svc *types.VirtualService) error {
@@ -106,14 +102,10 @@ func (s *shim) UpdateService(ctx context.Context, svc *types.VirtualService) err
 		return err
 	}
 
-	c := make(chan error, 1)
-	go func() { c <- s.handle.UpdateService(ipvsSvc) }()
-	select {
-	case <-ctx.Done():
-		return fmt.Errorf("timeout waiting for netlink UpdateService, possible goroutine leak (%v)", ctx.Err())
-	case err := <-c:
-		return err
-	}
+	_, err = performAsync(ctx, func() (interface{}, error) {
+		return nil, s.handle.UpdateService(ipvsSvc)
+	})
+	return err
 }
 
 func (s *shim) DeleteService(ctx context.Context, key *types.VirtualService_Key) error {
@@ -122,58 +114,41 @@ func (s *shim) DeleteService(ctx context.Context, key *types.VirtualService_Key)
 		return err
 	}
 
-	c := make(chan error, 1)
-	go func() { c <- s.handle.DelService(ipvsSvc) }()
-	select {
-	case <-ctx.Done():
-		return fmt.Errorf("timeout waiting for netlink DelService, possible goroutine leak (%v)", ctx.Err())
-	case err := <-c:
-		return err
-	}
+	_, err = performAsync(ctx, func() (interface{}, error) {
+		return nil, s.handle.DelService(ipvsSvc)
+	})
+	return err
 }
 
 func (s *shim) ListServices(ctx context.Context) ([]*types.VirtualService, error) {
-	c := make(chan struct {
-		services []*ipvs.Service
-		error
-	}, 1)
-	go func() {
-		svcs, err := s.handle.GetServices()
-		c <- struct {
-			services []*ipvs.Service
-			error
-		}{svcs, err}
-	}()
-
-	select {
-	case <-ctx.Done():
-		return nil, fmt.Errorf("timeout waiting for netlink ListServices, possible goroutine leak (%v)", ctx.Err())
-	case r := <-c:
-		if r.error != nil {
-			return nil, fmt.Errorf("failed to list services: %v", r.error)
-		}
-
-		var svcs []*types.VirtualService
-		for _, hSvc := range r.services {
-			protocol, err := fromProtocolBits(hSvc.Protocol)
-			if err != nil {
-				return nil, err
-			}
-			svc := &types.VirtualService{
-				Key: &types.VirtualService_Key{
-					Ip:       hSvc.Address.String(),
-					Port:     uint32(hSvc.Port),
-					Protocol: protocol,
-				},
-				Config: &types.VirtualService_Config{
-					Scheduler: hSvc.SchedName,
-					Flags:     fromFlagBits(hSvc.Flags),
-				},
-			}
-			svcs = append(svcs, svc)
-		}
-		return svcs, nil
+	val, err := performAsync(ctx, func() (interface{}, error) {
+		return s.handle.GetServices()
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list services: %v", err)
 	}
+	services := val.([]*ipvs.Service)
+
+	var svcs []*types.VirtualService
+	for _, hSvc := range services {
+		protocol, err := fromProtocolBits(hSvc.Protocol)
+		if err != nil {
+			return nil, err
+		}
+		svc := &types.VirtualService{
+			Key: &types.VirtualService_Key{
+				Ip:       hSvc.Address.String(),
+				Port:     uint32(hSvc.Port),
+				Protocol: protocol,
+			},
+			Config: &types.VirtualService_Config{
+				Scheduler: hSvc.SchedName,
+				Flags:     fromFlagBits(hSvc.Flags),
+			},
+		}
+		svcs = append(svcs, svc)
+	}
+	return svcs, nil
 }
 
 func createHandleDestination(server *types.RealServer, full bool) (*ipvs.Destination, error) {
@@ -218,14 +193,10 @@ func (s *shim) AddServer(ctx context.Context, key *types.VirtualService_Key, ser
 		return err
 	}
 
-	c := make(chan error, 1)
-	go func() { c <- s.handle.NewDestination(svc, dest) }()
-	select {
-	case <-ctx.Done():
-		return fmt.Errorf("timeout waiting for netlink NewDestination, possible goroutine leak (%v)", ctx.Err())
-	case err := <-c:
-		return err
-	}
+	_, err = performAsync(ctx, func() (interface{}, error) {
+		return nil, s.handle.NewDestination(svc, dest)
+	})
+	return err
 }
 
 func (s *shim) UpdateServer(ctx context.Context, key *types.VirtualService_Key, server *types.RealServer) error {
@@ -234,14 +205,10 @@ func (s *shim) UpdateServer(ctx context.Context, key *types.VirtualService_Key, 
 		return err
 	}
 
-	c := make(chan error, 1)
-	go func() { c <- s.handle.UpdateDestination(svc, dest) }()
-	select {
-	case <-ctx.Done():
-		return fmt.Errorf("timeout waiting for netlink UpdateDestination, possible goroutine leak (%v)", ctx.Err())
-	case err := <-c:
-		return err
-	}
+	_, err = performAsync(ctx, func() (interface{}, error) {
+		return nil, s.handle.UpdateDestination(svc, dest)
+	})
+	return err
 }
 
 func (s *shim) DeleteServer(ctx context.Context, key *types.VirtualService_Key, server *types.RealServer) error {
@@ -250,14 +217,10 @@ func (s *shim) DeleteServer(ctx context.Context, key *types.VirtualService_Key, 
 		return err
 	}
 
-	c := make(chan error, 1)
-	go func() { c <- s.handle.DelDestination(svc, dest) }()
-	select {
-	case <-ctx.Done():
-		return fmt.Errorf("timeout waiting for netlink DelDestination, possible goroutine leak (%v)", ctx.Err())
-	case err := <-c:
-		return err
-	}
+	_, err = performAsync(ctx, func() (interface{}, error) {
+		return nil, s.handle.DelDestination(svc, dest)
+	})
+	return err
 }
 
 func (s *shim) ListServers(ctx context.Context, key *types.VirtualService_Key) ([]*types.RealServer, error) {
@@ -266,46 +229,57 @@ func (s *shim) ListServers(ctx context.Context, key *types.VirtualService_Key) (
 		return nil, err
 	}
 
+	val, err := performAsync(ctx, func() (interface{}, error) {
+		return s.handle.GetDestinations(svc)
+	})
+	if err != nil {
+		return nil, err
+	}
+	destinations := val.([]*ipvs.Destination)
+
+	var servers []*types.RealServer
+	for _, dest := range destinations {
+		fwdBits := dest.ConnectionFlags & ipvs.ConnectionFlagFwdMask
+		fwd, ok := forwardingMethodsInverted[fwdBits]
+		if !ok {
+			return nil, fmt.Errorf("unable to list backends, unexpected forward method bits %#x", fwdBits)
+		}
+		server := &types.RealServer{
+			Key: &types.RealServer_Key{
+				Ip:   dest.Address.String(),
+				Port: uint32(dest.Port),
+			},
+			Config: &types.RealServer_Config{
+				Weight:  &wrappers.UInt32Value{Value: uint32(dest.Weight)},
+				Forward: fwd,
+			},
+		}
+		servers = append(servers, server)
+	}
+
+	return servers, nil
+}
+
+func performAsync(ctx context.Context, fn func() (interface{}, error)) (interface{}, error) {
 	c := make(chan struct {
-		destinations []*ipvs.Destination
+		v interface{}
 		error
 	}, 1)
 	go func() {
-		dests, err := s.handle.GetDestinations(svc)
+		val, err := fn()
 		c <- struct {
-			destinations []*ipvs.Destination
+			v interface{}
 			error
-		}{dests, err}
+		}{val, err}
 	}()
 
 	select {
 	case <-ctx.Done():
-		return nil, fmt.Errorf("timeout waiting for netlink ListDestinations, possible goroutine leak (%v)", ctx.Err())
+		return nil, fmt.Errorf("timeout waiting for netlink call, possible goroutine leak (%v)", ctx.Err())
 	case r := <-c:
 		if r.error != nil {
 			return nil, r.error
 		}
-
-		var servers []*types.RealServer
-		for _, dest := range r.destinations {
-			fwdBits := dest.ConnectionFlags & ipvs.ConnectionFlagFwdMask
-			fwd, ok := forwardingMethodsInverted[fwdBits]
-			if !ok {
-				return nil, fmt.Errorf("unable to list backends, unexpected forward method bits %#x", fwdBits)
-			}
-			server := &types.RealServer{
-				Key: &types.RealServer_Key{
-					Ip:   dest.Address.String(),
-					Port: uint32(dest.Port),
-				},
-				Config: &types.RealServer_Config{
-					Weight:  &wrappers.UInt32Value{Value: uint32(dest.Weight)},
-					Forward: fwd,
-				},
-			}
-			servers = append(servers, server)
-		}
-
-		return servers, nil
+		return r.v, nil
 	}
 }
