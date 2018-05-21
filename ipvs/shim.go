@@ -8,6 +8,8 @@ import (
 
 	"net"
 
+	"context"
+
 	"github.com/docker/libnetwork/ipvs"
 	"github.com/golang/protobuf/ptypes/wrappers"
 	"github.com/sky-uk/merlin/types"
@@ -16,14 +18,14 @@ import (
 // IPVS shim.
 type IPVS interface {
 	Close()
-	AddService(svc *types.VirtualService) error
-	UpdateService(svc *types.VirtualService) error
-	DeleteService(key *types.VirtualService_Key) error
-	ListServices() ([]*types.VirtualService, error)
-	AddServer(key *types.VirtualService_Key, server *types.RealServer) error
-	UpdateServer(key *types.VirtualService_Key, server *types.RealServer) error
-	DeleteServer(key *types.VirtualService_Key, server *types.RealServer) error
-	ListServers(key *types.VirtualService_Key) ([]*types.RealServer, error)
+	AddService(ctx context.Context, svc *types.VirtualService) error
+	UpdateService(ctx context.Context, svc *types.VirtualService) error
+	DeleteService(ctx context.Context, key *types.VirtualService_Key) error
+	ListServices(ctx context.Context) ([]*types.VirtualService, error)
+	AddServer(ctx context.Context, key *types.VirtualService_Key, server *types.RealServer) error
+	UpdateServer(ctx context.Context, key *types.VirtualService_Key, server *types.RealServer) error
+	DeleteServer(ctx context.Context, key *types.VirtualService_Key, server *types.RealServer) error
+	ListServers(ctx context.Context, key *types.VirtualService_Key) ([]*types.RealServer, error)
 }
 
 // ipvsHandle for libnetwork/ipvs.
@@ -82,38 +84,53 @@ func createHandleService(svc *types.VirtualService) (*ipvs.Service, error) {
 	return ipvsSvc, nil
 }
 
-func (s *shim) AddService(svc *types.VirtualService) error {
+func (s *shim) AddService(ctx context.Context, svc *types.VirtualService) error {
 	ipvsSvc, err := createHandleService(svc)
 	if err != nil {
 		return err
 	}
-	return s.handle.NewService(ipvsSvc)
+
+	_, err = performAsync(ctx, func() (interface{}, error) {
+		return nil, s.handle.NewService(ipvsSvc)
+	})
+	return err
 }
 
-func (s *shim) UpdateService(svc *types.VirtualService) error {
+func (s *shim) UpdateService(ctx context.Context, svc *types.VirtualService) error {
 	ipvsSvc, err := createHandleService(svc)
 	if err != nil {
 		return err
 	}
-	return s.handle.UpdateService(ipvsSvc)
+
+	_, err = performAsync(ctx, func() (interface{}, error) {
+		return nil, s.handle.UpdateService(ipvsSvc)
+	})
+	return err
 }
 
-func (s *shim) DeleteService(key *types.VirtualService_Key) error {
-	svc, err := createHandleServiceKey(key)
+func (s *shim) DeleteService(ctx context.Context, key *types.VirtualService_Key) error {
+	ipvsSvc, err := createHandleServiceKey(key)
 	if err != nil {
 		return err
 	}
-	return s.handle.DelService(svc)
+
+	_, err = performAsync(ctx, func() (interface{}, error) {
+		return nil, s.handle.DelService(ipvsSvc)
+	})
+	return err
 }
 
-func (s *shim) ListServices() ([]*types.VirtualService, error) {
-	hServices, err := s.handle.GetServices()
+func (s *shim) ListServices(ctx context.Context) ([]*types.VirtualService, error) {
+	val, err := performAsync(ctx, func() (interface{}, error) {
+		return s.handle.GetServices()
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list services: %v", err)
 	}
+	services := val.([]*ipvs.Service)
 
 	var svcs []*types.VirtualService
-	for _, hSvc := range hServices {
+	for _, hSvc := range services {
 		protocol, err := fromProtocolBits(hSvc.Protocol)
 		if err != nil {
 			return nil, err
@@ -131,7 +148,6 @@ func (s *shim) ListServices() ([]*types.VirtualService, error) {
 		}
 		svcs = append(svcs, svc)
 	}
-
 	return svcs, nil
 }
 
@@ -171,43 +187,58 @@ func createHandleServiceKeyAndDestination(key *types.VirtualService_Key, server 
 	return svc, dest, nil
 }
 
-func (s *shim) AddServer(key *types.VirtualService_Key, server *types.RealServer) error {
+func (s *shim) AddServer(ctx context.Context, key *types.VirtualService_Key, server *types.RealServer) error {
 	svc, dest, err := createHandleServiceKeyAndDestination(key, server, true)
 	if err != nil {
 		return err
 	}
-	return s.handle.NewDestination(svc, dest)
+
+	_, err = performAsync(ctx, func() (interface{}, error) {
+		return nil, s.handle.NewDestination(svc, dest)
+	})
+	return err
 }
 
-func (s *shim) UpdateServer(key *types.VirtualService_Key, server *types.RealServer) error {
+func (s *shim) UpdateServer(ctx context.Context, key *types.VirtualService_Key, server *types.RealServer) error {
 	svc, dest, err := createHandleServiceKeyAndDestination(key, server, true)
 	if err != nil {
 		return err
 	}
-	return s.handle.UpdateDestination(svc, dest)
+
+	_, err = performAsync(ctx, func() (interface{}, error) {
+		return nil, s.handle.UpdateDestination(svc, dest)
+	})
+	return err
 }
 
-func (s *shim) DeleteServer(key *types.VirtualService_Key, server *types.RealServer) error {
+func (s *shim) DeleteServer(ctx context.Context, key *types.VirtualService_Key, server *types.RealServer) error {
 	svc, dest, err := createHandleServiceKeyAndDestination(key, server, false)
 	if err != nil {
 		return err
 	}
-	return s.handle.DelDestination(svc, dest)
+
+	_, err = performAsync(ctx, func() (interface{}, error) {
+		return nil, s.handle.DelDestination(svc, dest)
+	})
+	return err
 }
 
-func (s *shim) ListServers(key *types.VirtualService_Key) ([]*types.RealServer, error) {
+func (s *shim) ListServers(ctx context.Context, key *types.VirtualService_Key) ([]*types.RealServer, error) {
 	svc, err := createHandleServiceKey(key)
 	if err != nil {
 		return nil, err
 	}
 
-	dests, err := s.handle.GetDestinations(svc)
+	val, err := performAsync(ctx, func() (interface{}, error) {
+		return s.handle.GetDestinations(svc)
+	})
 	if err != nil {
 		return nil, err
 	}
+	destinations := val.([]*ipvs.Destination)
 
 	var servers []*types.RealServer
-	for _, dest := range dests {
+	for _, dest := range destinations {
 		fwdBits := dest.ConnectionFlags & ipvs.ConnectionFlagFwdMask
 		fwd, ok := forwardingMethodsInverted[fwdBits]
 		if !ok {
@@ -227,4 +258,28 @@ func (s *shim) ListServers(key *types.VirtualService_Key) ([]*types.RealServer, 
 	}
 
 	return servers, nil
+}
+
+func performAsync(ctx context.Context, fn func() (interface{}, error)) (interface{}, error) {
+	c := make(chan struct {
+		v interface{}
+		error
+	}, 1)
+	go func() {
+		val, err := fn()
+		c <- struct {
+			v interface{}
+			error
+		}{val, err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("timeout waiting for netlink call, possible goroutine leak (%v)", ctx.Err())
+	case r := <-c:
+		if r.error != nil {
+			return nil, r.error
+		}
+		return r.v, nil
+	}
 }

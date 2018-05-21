@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	initTimeout       = 10 * time.Second
-	reconcilerTimeout = 1 * time.Minute
+	storeTimeout = 30 * time.Second
+	ipvsTimeout  = 30 * time.Second
 )
 
 type reconciler struct {
@@ -80,16 +80,13 @@ func (r *reconciler) Start() error {
 }
 
 func (r *reconciler) initializeHealthChecks() error {
-	ctx, cancel := context.WithTimeout(context.Background(), initTimeout)
-	defer cancel()
-
-	services, err := r.store.ListServices(ctx)
+	services, err := r.listStoreServices()
 	if err != nil {
 		return fmt.Errorf("failed to query store when initializing: %v", err)
 	}
 
 	for _, service := range services {
-		servers, err := r.store.ListServers(ctx, service.Id)
+		servers, err := r.listStoreServers(service.Id)
 		if err != nil {
 			return fmt.Errorf("failed to query store when initializing: %v", err)
 		}
@@ -119,7 +116,7 @@ func (r *reconciler) createHealthStateWeightUpdater(serviceKey *types.VirtualSer
 			panic("unexpected state")
 		}
 
-		if err := r.ipvs.UpdateServer(serviceKey, serverCopy); err != nil {
+		if err := r.updateIPVSServer(serviceKey, serverCopy); err != nil {
 			log.Warnf("Unable to update the weight for %v: %v", serverCopy, err)
 		}
 	}
@@ -137,18 +134,16 @@ func (r *reconciler) Sync() {
 func (r *reconciler) reconcile() {
 	log.Debug("Starting reconcile")
 	defer log.Debug("Finished reconcile")
-	ctx, cancel := context.WithTimeout(context.Background(), reconcilerTimeout)
-	defer cancel()
 
-	desiredServices, err := r.store.ListServices(ctx)
+	desiredServices, err := r.listStoreServices()
 	if err != nil {
-		log.Errorf("unable to populate: %v", err)
+		log.Errorf("Unable to populate: %v", err)
 		return
 	}
 
-	actualServices, err := r.ipvs.ListServices()
+	actualServices, err := r.listIPVSServices()
 	if err != nil {
-		log.Errorf("unable to populate: %v", err)
+		log.Panicf("Unable to populate: %v", err)
 		return
 	}
 
@@ -166,25 +161,25 @@ func (r *reconciler) reconcile() {
 
 		if match == nil {
 			log.Infof("Adding virtual service: %s", desiredService.PrettyString())
-			if err := r.ipvs.AddService(desiredService); err != nil {
-				log.Errorf("Unable to add service: %v", err)
+			if err := r.addIPVSService(desiredService); err != nil {
+				log.Panicf("Unable to add service: %v", err)
 			}
 		} else if !proto.Equal(desiredService.Config, match.Config) {
 			log.Infof("Updating virtual service %q: [%v] to [%v]", desiredService.Id, match.Config.PrettyString(),
 				desiredService.Config.PrettyString())
-			if err := r.ipvs.UpdateService(desiredService); err != nil {
-				log.Errorf("Unable to update service: %v", err)
+			if err := r.updateIPVSService(desiredService); err != nil {
+				log.Panicf("Unable to update service: %v", err)
 			}
 		}
 
-		desiredServers, err := r.store.ListServers(ctx, desiredService.Id)
+		desiredServers, err := r.listStoreServers(desiredService.Id)
 		if err != nil {
-			log.Errorf("unable to list servers in store for %s: %v", desiredService.Key.PrettyString(), err)
+			log.Errorf("Unable to list servers in store for %s: %v", desiredService.Key.PrettyString(), err)
 			continue
 		}
-		actualServers, err := r.ipvs.ListServers(desiredService.Key)
+		actualServers, err := r.listIPVSServers(desiredService.Key)
 		if err != nil {
-			log.Errorf("unable to list servers in ipvs for %v: %v", desiredService.Key.PrettyString(), err)
+			log.Panicf("Unable to list servers in ipvs for %v: %v", desiredService.Key.PrettyString(), err)
 			continue
 		}
 
@@ -208,13 +203,13 @@ func (r *reconciler) reconcile() {
 			// update IPVS
 			if match == nil {
 				log.Infof("Adding real server: %v", desiredServer.PrettyString())
-				if err := r.ipvs.AddServer(desiredService.Key, desiredServer); err != nil {
-					log.Errorf("Unable to add server: %v", err)
+				if err := r.addIPVSServer(desiredService.Key, desiredServer); err != nil {
+					log.Panicf("Unable to add server: %v", err)
 				}
 			} else if !proto.Equal(desiredServer.Config, match.Config) {
 				log.Infof("Updating real server: %v", desiredServer.PrettyString())
-				if err := r.ipvs.UpdateServer(desiredService.Key, desiredServer); err != nil {
-					log.Errorf("Unable to update server: %v", err)
+				if err := r.updateIPVSServer(desiredService.Key, desiredServer); err != nil {
+					log.Panicf("Unable to update server: %v", err)
 				}
 			}
 		}
@@ -233,8 +228,8 @@ func (r *reconciler) reconcile() {
 				// remove health check
 				r.checker.RemHealthCheck(desiredService.Id, actualServer.Key)
 				// remove from ipvs
-				if err := r.ipvs.DeleteServer(desiredService.Key, actualServer); err != nil {
-					log.Errorf("Unable to delete server: %v", err)
+				if err := r.deleteIPVSServer(desiredService.Key, actualServer); err != nil {
+					log.Panicf("Unable to delete server: %v", err)
 				}
 			}
 		}
@@ -251,9 +246,69 @@ func (r *reconciler) reconcile() {
 		}
 		if !found {
 			log.Infof("Deleting virtual service: %v", actual.PrettyString())
-			if err := r.ipvs.DeleteService(actual.Key); err != nil {
-				log.Errorf("Unable to delete service: %v", err)
+			if err := r.deleteIPVSService(actual.Key); err != nil {
+				log.Panicf("Unable to delete service: %v", err)
 			}
 		}
 	}
+}
+
+func (r *reconciler) listStoreServices() ([]*types.VirtualService, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), storeTimeout)
+	defer cancel()
+	return r.store.ListServices(ctx)
+}
+
+func (r *reconciler) listStoreServers(serviceID string) ([]*types.RealServer, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), storeTimeout)
+	defer cancel()
+	return r.store.ListServers(ctx, serviceID)
+}
+
+func (r *reconciler) addIPVSService(svc *types.VirtualService) error {
+	ctx, cancel := context.WithTimeout(context.Background(), ipvsTimeout)
+	defer cancel()
+	return r.ipvs.AddService(ctx, svc)
+}
+
+func (r *reconciler) updateIPVSService(svc *types.VirtualService) error {
+	ctx, cancel := context.WithTimeout(context.Background(), ipvsTimeout)
+	defer cancel()
+	return r.ipvs.UpdateService(ctx, svc)
+}
+
+func (r *reconciler) deleteIPVSService(key *types.VirtualService_Key) error {
+	ctx, cancel := context.WithTimeout(context.Background(), ipvsTimeout)
+	defer cancel()
+	return r.ipvs.DeleteService(ctx, key)
+}
+
+func (r *reconciler) listIPVSServices() ([]*types.VirtualService, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), ipvsTimeout)
+	defer cancel()
+	return r.ipvs.ListServices(ctx)
+}
+
+func (r *reconciler) addIPVSServer(key *types.VirtualService_Key, server *types.RealServer) error {
+	ctx, cancel := context.WithTimeout(context.Background(), ipvsTimeout)
+	defer cancel()
+	return r.ipvs.AddServer(ctx, key, server)
+}
+
+func (r *reconciler) updateIPVSServer(key *types.VirtualService_Key, server *types.RealServer) error {
+	ctx, cancel := context.WithTimeout(context.Background(), ipvsTimeout)
+	defer cancel()
+	return r.ipvs.UpdateServer(ctx, key, server)
+}
+
+func (r *reconciler) deleteIPVSServer(key *types.VirtualService_Key, server *types.RealServer) error {
+	ctx, cancel := context.WithTimeout(context.Background(), ipvsTimeout)
+	defer cancel()
+	return r.ipvs.DeleteServer(ctx, key, server)
+}
+
+func (r *reconciler) listIPVSServers(key *types.VirtualService_Key) ([]*types.RealServer, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), ipvsTimeout)
+	defer cancel()
+	return r.ipvs.ListServers(ctx, key)
 }

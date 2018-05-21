@@ -110,7 +110,7 @@ var _ = Describe("Reconciler", func() {
 		It("should set the weight to 0 on down transition", func() {
 			disabledServer := proto.Clone(server).(*types.RealServer)
 			disabledServer.Config.Weight = &wrappers.UInt32Value{Value: 0}
-			ipvs.On("UpdateServer", service.Key, disabledServer).Return(nil)
+			ipvs.On("UpdateServer", mock.Anything, service.Key, disabledServer).Return(nil)
 
 			fn := r.createHealthStateWeightUpdater(service.Key, server)
 			fn(healthchecks.ServerDown)
@@ -119,7 +119,7 @@ var _ = Describe("Reconciler", func() {
 		})
 
 		It("should set the weight to original on up transition", func() {
-			ipvs.On("UpdateServer", service.Key, server).Return(nil)
+			ipvs.On("UpdateServer", mock.Anything, service.Key, server).Return(nil)
 
 			fn := r.createHealthStateWeightUpdater(service.Key, server)
 			fn(healthchecks.ServerUp)
@@ -341,32 +341,32 @@ var _ = Describe("Reconciler", func() {
 			}
 
 			// ipvs
-			ipvsMock.On("ListServices").Return(c.actualServices, nil)
+			ipvsMock.On("ListServices", mock.Anything).Return(c.actualServices, nil)
 			for _, s := range c.createdServices {
-				ipvsMock.On("AddService", s).Return(nil)
+				ipvsMock.On("AddService", mock.Anything, s).Return(nil)
 			}
 			for _, s := range c.updatedServices {
-				ipvsMock.On("UpdateService", s).Return(nil)
+				ipvsMock.On("UpdateService", mock.Anything, s).Return(nil)
 			}
 			for _, s := range c.deletedServices {
-				ipvsMock.On("DeleteService", s.Key).Return(nil)
+				ipvsMock.On("DeleteService", mock.Anything, s.Key).Return(nil)
 			}
 			for service, servers := range c.actualServers {
-				ipvsMock.On("ListServers", service.Key).Return(servers, nil)
+				ipvsMock.On("ListServers", mock.Anything, service.Key).Return(servers, nil)
 			}
 			for service, servers := range c.createdServers {
 				for _, server := range servers {
-					ipvsMock.On("AddServer", service.Key, server).Return(nil)
+					ipvsMock.On("AddServer", mock.Anything, service.Key, server).Return(nil)
 				}
 			}
 			for service, servers := range c.updatedServers {
 				for _, server := range servers {
-					ipvsMock.On("UpdateServer", service.Key, server).Return(nil)
+					ipvsMock.On("UpdateServer", mock.Anything, service.Key, server).Return(nil)
 				}
 			}
 			for service, servers := range c.deletedServers {
 				for _, server := range servers {
-					ipvsMock.On("DeleteServer", service.Key, server).Return(nil)
+					ipvsMock.On("DeleteServer", mock.Anything, service.Key, server).Return(nil)
 				}
 			}
 
@@ -459,36 +459,36 @@ func (i *ipvsMock) Close() {
 	i.Called()
 }
 
-func (i *ipvsMock) AddService(svc *types.VirtualService) error {
-	args := i.Called(svc)
+func (i *ipvsMock) AddService(ctx context.Context, svc *types.VirtualService) error {
+	args := i.Called(ctx, svc)
 	return args.Error(0)
 }
-func (i *ipvsMock) UpdateService(svc *types.VirtualService) error {
-	args := i.Called(svc)
+func (i *ipvsMock) UpdateService(ctx context.Context, svc *types.VirtualService) error {
+	args := i.Called(ctx, svc)
 	return args.Error(0)
 }
-func (i *ipvsMock) DeleteService(key *types.VirtualService_Key) error {
-	args := i.Called(key)
+func (i *ipvsMock) DeleteService(ctx context.Context, key *types.VirtualService_Key) error {
+	args := i.Called(ctx, key)
 	return args.Error(0)
 }
-func (i *ipvsMock) ListServices() ([]*types.VirtualService, error) {
-	args := i.Called()
+func (i *ipvsMock) ListServices(ctx context.Context) ([]*types.VirtualService, error) {
+	args := i.Called(ctx)
 	return args.Get(0).([]*types.VirtualService), args.Error(1)
 }
-func (i *ipvsMock) AddServer(key *types.VirtualService_Key, server *types.RealServer) error {
-	args := i.Called(key, server)
+func (i *ipvsMock) AddServer(ctx context.Context, key *types.VirtualService_Key, server *types.RealServer) error {
+	args := i.Called(ctx, key, server)
 	return args.Error(0)
 }
-func (i *ipvsMock) UpdateServer(key *types.VirtualService_Key, server *types.RealServer) error {
-	args := i.Called(key, server)
+func (i *ipvsMock) UpdateServer(ctx context.Context, key *types.VirtualService_Key, server *types.RealServer) error {
+	args := i.Called(ctx, key, server)
 	return args.Error(0)
 }
-func (i *ipvsMock) DeleteServer(key *types.VirtualService_Key, server *types.RealServer) error {
-	args := i.Called(key, server)
+func (i *ipvsMock) DeleteServer(ctx context.Context, key *types.VirtualService_Key, server *types.RealServer) error {
+	args := i.Called(ctx, key, server)
 	return args.Error(0)
 }
-func (i *ipvsMock) ListServers(key *types.VirtualService_Key) ([]*types.RealServer, error) {
-	args := i.Called(key)
+func (i *ipvsMock) ListServers(ctx context.Context, key *types.VirtualService_Key) ([]*types.RealServer, error) {
+	args := i.Called(ctx, key)
 	return args.Get(0).([]*types.RealServer), args.Error(1)
 }
 

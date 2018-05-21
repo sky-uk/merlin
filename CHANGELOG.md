@@ -1,3 +1,7 @@
+# 0.1.4
+
+* Add netlink timeouts to guard against a hanging reconciler.
+
 # 0.1.3
 
 * Update weights immediately when healthcheck state changes.
