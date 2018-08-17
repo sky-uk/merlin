@@ -40,6 +40,7 @@ var (
 	debugLogs           bool
 	port                int
 	healthPort          int
+	storeBackend        string
 	storeEndpoints      string
 	storePrefix         string
 	reconcileSyncPeriod time.Duration
@@ -57,7 +58,8 @@ func init() {
 	f.BoolVar(&debugLogs, "debug", false, "enable debug logs")
 	f.IntVar(&port, "port", 4282, "server port")
 	f.IntVar(&healthPort, "health-port", 4283, "/health, /alive, /metrics, and /debug endpoints")
-	f.StringVar(&storeEndpoints, "store-endpoints", "", "comma delimited list of etcd2 endpoints")
+	f.StringVar(&storeBackend, "store-backend", "etcd2", "controls which storage backend to use; supports etcd2 or etcd3")
+	f.StringVar(&storeEndpoints, "store-endpoints", "", "comma delimited list of etcd2 / etcd3 endpoints")
 	f.StringVar(&storePrefix, "store-prefix", "/merlin", "prefix to store state")
 	f.DurationVar(&reconcileSyncPeriod, "reconcile-sync-period", time.Minute, "how often to periodically sync ipvs state")
 	f.BoolVar(&reconcile, "reconcile", true, "if enabled, merlin will reconcile local ipvs with store state")
@@ -105,7 +107,7 @@ func (s *srv) Start() {
 	}
 	log.Infof("Starting merlin")
 
-	etcdStore, err := store.NewEtcd2(strings.Split(storeEndpoints, ","), storePrefix)
+	etcdStore, err := store.NewStore(storeBackend, strings.Split(storeEndpoints, ","), storePrefix)
 	if err != nil {
 		log.Fatalf("Unable to start store client: %v", err)
 	}

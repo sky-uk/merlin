@@ -10,19 +10,19 @@ import (
 	"net/http"
 	"time"
 
+	"context"
+
+	"github.com/coreos/etcd/clientv3"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	. "github.com/sky-uk/merlin/e2e"
 )
 
-var _ = Describe("E2E With Meradm/Merlin/Etcd", func() {
-	BeforeSuite(func() {
-		SetupE2E()
-	})
+func testCli(storeBackend string, etcdDel func(string)) {
 
 	BeforeEach(func() {
 		StartEtcd()
-		StartMerlin()
+		StartMerlin(storeBackend)
 	})
 
 	AfterEach(func() {
@@ -181,17 +181,6 @@ var _ = Describe("E2E With Meradm/Merlin/Etcd", func() {
 			time.Sleep(100 * time.Millisecond)
 			MerlinStderr()
 
-			etcdDel := func(path string) {
-				serverURL := fmt.Sprintf("http://localhost:%s/v2/keys/merlin/%s", EtcdPort(), path)
-				req, _ := http.NewRequest(http.MethodDelete, serverURL, nil)
-				resp, err := http.DefaultClient.Do(req)
-				if err != nil {
-					panic(err)
-				}
-				defer resp.Body.Close()
-				Expect(resp.StatusCode).To(Equal(http.StatusOK))
-			}
-
 			// delete server directly in etcd
 			etcdDel("servers/service1/172.16.1.1:555")
 			time.Sleep(250 * time.Millisecond)
@@ -204,6 +193,52 @@ var _ = Describe("E2E With Meradm/Merlin/Etcd", func() {
 			stderr = MerlinStderr()
 			Expect(stderr).To(ContainElement(ContainSubstring("stub-reconciler: Sync()")))
 		})
+	})
+}
+
+var _ = Describe("E2E With Meradm/Merlin/Etcd", func() {
+
+	BeforeSuite(func() {
+		SetupE2E()
+	})
+
+	Describe("etcd2 backend", func() {
+
+		etcdDel := func(path string) {
+			serverURL := fmt.Sprintf("http://localhost:%s/v2/keys/merlin/%s", EtcdPort(), path)
+			req, _ := http.NewRequest(http.MethodDelete, serverURL, nil)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				panic(err)
+			}
+			defer resp.Body.Close()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		}
+
+		testCli("etcd2", etcdDel)
+	})
+
+	Describe("etcd3 backend", func() {
+
+		etcdDel := func(path string) {
+
+			serverURL := fmt.Sprintf("http://localhost:%s", EtcdPort())
+			keyName := fmt.Sprintf("/merlin/%s", path)
+
+			cli, err := clientv3.NewFromURL(serverURL)
+			if err != nil {
+				panic(err)
+			}
+
+			defer cli.Close()
+
+			_, err = cli.Delete(context.Background(), keyName)
+			if err != nil {
+				panic(err)
+			}
+		}
+
+		testCli("etcd3", etcdDel)
 	})
 })
 
