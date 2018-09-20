@@ -41,7 +41,7 @@ func NewStore(storeBackend string, endpoints []string, prefix string) (Store, er
 	}
 }
 
-func unmarshalString(raw string) []byte {
+func base64decode(raw string) []byte {
 	b, err := base64.StdEncoding.DecodeString(raw)
 	if err != nil {
 		panic(fmt.Errorf("unable to decode - did you break backwards compatibility?: %v", err))

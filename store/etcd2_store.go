@@ -90,7 +90,7 @@ func (s *etcd2store) GetService(ctx context.Context, serviceID string) (*types.V
 	if err != nil {
 		return nil, fmt.Errorf("unable to retrieve service from store: %v", err)
 	}
-	svc := unmarshalService(unmarshalString(resp.Node.Value))
+	svc := unmarshalService(base64decode(resp.Node.Value))
 	return svc, nil
 }
 
@@ -133,7 +133,7 @@ func (s *etcd2store) GetServer(ctx context.Context, serviceID string, key *types
 	if err != nil {
 		return nil, fmt.Errorf("unable to retrieve server from store: %v", err)
 	}
-	server := unmarshalServer(unmarshalString(resp.Node.Value))
+	server := unmarshalServer(base64decode(resp.Node.Value))
 	return server, nil
 }
 
@@ -170,7 +170,7 @@ func (s *etcd2store) ListServices(ctx context.Context) ([]*types.VirtualService,
 
 	var services []*types.VirtualService
 	for _, node := range resp.Node.Nodes {
-		service := unmarshalService(unmarshalString(node.Value))
+		service := unmarshalService(base64decode(node.Value))
 		services = append(services, service)
 	}
 	return services, nil
@@ -187,7 +187,7 @@ func (s *etcd2store) ListServers(ctx context.Context, serviceID string) ([]*type
 
 	var servers []*types.RealServer
 	for _, node := range resp.Node.Nodes {
-		server := unmarshalServer(unmarshalString(node.Value))
+		server := unmarshalServer(base64decode(node.Value))
 		servers = append(servers, server)
 	}
 	return servers, nil

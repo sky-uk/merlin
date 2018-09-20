@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/cenkalti/backoff"
-	"github.com/coreos/etcd/client"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/golang/protobuf/proto"
 	log "github.com/sirupsen/logrus"
@@ -47,7 +46,6 @@ func (s *etcd3store) serviceKey(id string) string {
 }
 
 func (s *etcd3store) GetService(ctx context.Context, serviceID string) (*types.VirtualService, error) {
-
 	resp, err := s.client.Get(ctx, s.serviceKey(serviceID))
 	if len(resp.Kvs) == 0 {
 		return nil, nil
@@ -137,7 +135,7 @@ func (s *etcd3store) ListServices(ctx context.Context) ([]*types.VirtualService,
 
 func (s *etcd3store) ListServers(ctx context.Context, serviceID string) ([]*types.RealServer, error) {
 	resp, err := s.client.Get(ctx, s.serverDir(serviceID), clientv3.WithPrefix())
-	if client.IsKeyNotFound(err) {
+	if len(resp.Kvs) == 0 {
 		return []*types.RealServer{}, nil
 	}
 	if err != nil {
@@ -153,7 +151,6 @@ func (s *etcd3store) ListServers(ctx context.Context, serviceID string) ([]*type
 }
 
 func (s *etcd3store) Subscribe(subscriber func(), stopCh <-chan struct{}) {
-
 	go func() {
 		ctx, cancelFunc := context.WithCancel(context.Background())
 

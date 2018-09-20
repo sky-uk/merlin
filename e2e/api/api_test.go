@@ -29,7 +29,6 @@ func TestE2EAPI(t *testing.T) {
 }
 
 func testApi(storeBackend string) {
-
 	var (
 		conn       *grpc.ClientConn
 		client     types.MerlinClient
@@ -514,7 +513,6 @@ func testApi(storeBackend string) {
 }
 
 var _ = Describe("API", func() {
-
 	BeforeSuite(func() {
 		SetupE2E()
 	})

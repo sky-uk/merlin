@@ -197,7 +197,6 @@ func testCli(storeBackend string, etcdDel func(string)) {
 }
 
 var _ = Describe("E2E With Meradm/Merlin/Etcd", func() {
-
 	BeforeSuite(func() {
 		SetupE2E()
 	})
@@ -219,9 +218,7 @@ var _ = Describe("E2E With Meradm/Merlin/Etcd", func() {
 	})
 
 	Describe("etcd3 backend", func() {
-
 		etcdDel := func(path string) {
-
 			serverURL := fmt.Sprintf("http://localhost:%s", EtcdPort())
 			keyName := fmt.Sprintf("/merlin/%s", path)
 
