@@ -11,6 +11,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	log "github.com/sirupsen/logrus"
 	"github.com/sky-uk/merlin/types"
+	"time"
 )
 
 type etcd3store struct {
@@ -21,7 +22,8 @@ type etcd3store struct {
 // NewEtcd3 returns a Store implementation using an etcd3 backing store.
 func NewEtcd3(endpoints []string, prefix string) (Store, error) {
 	cfg := clientv3.Config{
-		Endpoints: endpoints,
+		Endpoints:   endpoints,
+		DialTimeout: time.Second,
 	}
 	log.Debug("Creating etcd3 client")
 	c, err := clientv3.New(cfg)
