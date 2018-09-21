@@ -2,16 +2,15 @@ package store
 
 import (
 	"context"
-
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/cenkalti/backoff"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/golang/protobuf/proto"
 	log "github.com/sirupsen/logrus"
 	"github.com/sky-uk/merlin/types"
-	"time"
 )
 
 type etcd3store struct {
