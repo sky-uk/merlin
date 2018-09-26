@@ -81,5 +81,4 @@ Testing should be done with [gingko](http://onsi.github.io/ginkgo/)/[gomega](htt
 
 # Remaining features
 
-* etcd3 with watchers
 * bgp client for ECMP

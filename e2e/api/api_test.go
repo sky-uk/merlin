@@ -28,11 +28,7 @@ func TestE2EAPI(t *testing.T) {
 	RunSpecs(t, "E2E API Suite")
 }
 
-var _ = Describe("API", func() {
-	BeforeSuite(func() {
-		SetupE2E()
-	})
-
+func testApi(storeBackend string) {
 	var (
 		conn       *grpc.ClientConn
 		client     types.MerlinClient
@@ -51,7 +47,7 @@ var _ = Describe("API", func() {
 
 	BeforeEach(func() {
 		StartEtcd()
-		StartMerlin()
+		StartMerlin(storeBackend)
 
 		dest := fmt.Sprintf("localhost:%s", MerlinPort())
 		fmt.Fprintf(os.Stderr, "dialing %s\n", dest)
@@ -513,5 +509,19 @@ var _ = Describe("API", func() {
 				}),
 			)
 		})
+	})
+}
+
+var _ = Describe("API", func() {
+	BeforeSuite(func() {
+		SetupE2E()
+	})
+
+	Describe("etcd2 backend", func() {
+		testApi("etcd2")
+	})
+
+	Describe("etcd3 backend", func() {
+		testApi("etcd3")
 	})
 })

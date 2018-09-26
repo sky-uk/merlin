@@ -1,3 +1,8 @@
+# 0.2.0
+
+* Add support for etcd3 storage backend
+* Add `store-backend` command line switch to allow storage backend to use etcd2 or etcd3. Defaults to etcd2.
+
 # 0.1.4
 
 * Add netlink timeouts to guard against a hanging reconciler.

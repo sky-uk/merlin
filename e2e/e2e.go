@@ -28,9 +28,10 @@ import (
 )
 
 const (
-	etcdDownloadURL    = "https://github.com/coreos/etcd/releases/download/v2.3.8/etcd-v2.3.8-linux-amd64.tar.gz"
-	etcdExpandedPath   = "etcd-v2.3.8-linux-amd64/"
-	etcdDownloadSha256 = "3431112f97105733aabb95816df99e44beabed2cc96201679e3b3b830ac35282"
+	etcdDownloadURL    = "https://github.com/coreos/etcd/releases/download/v3.3.9/etcd-v3.3.9-linux-amd64.tar.gz"
+	etcdExpandedPath   = "etcd-v3.3.9-linux-amd64/"
+	etcdDownloadSha256 = "7b95bdc6dfd1d805f650ea8f886fdae6e7322f886a8e9d1b0d14603767d053b1"
+
 	// assumes all specs run in subfolders of e2e
 	workingDir = "../.."
 	buildDir   = workingDir + "/build"
@@ -178,7 +179,7 @@ func MerlinStderr() []string {
 	return strings.Split(string(s), "\n")
 }
 
-func StartMerlin() {
+func StartMerlin(storeBackend string) {
 	ports := findFreePorts(2)
 	merlinPort = strconv.Itoa(ports[0])
 	merlinHealthPort = strconv.Itoa(ports[1])
@@ -187,6 +188,7 @@ func StartMerlin() {
 		"--port="+merlinPort,
 		"--health-port="+merlinHealthPort,
 		"--store-endpoints=http://127.0.0.1:"+etcdListenPort,
+		"--store-backend="+storeBackend,
 		"--reconcile=false",
 		"--debug")
 
