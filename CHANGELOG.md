@@ -1,3 +1,6 @@
+# 0.2.1
+
+* Update alpine image to fix CVE-2019-5021.
 # 0.2.0
 
 * Add support for etcd3 storage backend
