@@ -1,6 +1,7 @@
 # 0.2.1
 
 * Update alpine image to fix CVE-2019-5021.
+* Update to go version 1.11
 
 # 0.2.0
 
