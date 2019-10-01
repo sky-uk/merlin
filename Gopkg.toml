@@ -1,6 +1,6 @@
 # Gopkg.toml example
 #
-# Refer to https://github.com/golang/dep/blob/master/docs/Gopkg.toml.md
+# Refer to https://golang.github.io/dep/docs/Gopkg.toml.html
 # for detailed Gopkg.toml documentation.
 #
 # required = ["github.com/user/thing/cmd/thing"]
@@ -24,54 +24,63 @@
 #   go-tests = true
 #   unused-packages = true
 
-# To constrain the version for docker/libnetwork.
-required = ["github.com/vishvananda/netlink"]
-
-# See https://github.com/docker/libnetwork/blob/master/vendor.conf.
-[[constraint]]
-  name = "github.com/vishvananda/netlink"
-  revision = "b2de5d10e38ecce8607e6b438b6d174f389a004e"
 
 [[constraint]]
+  name = "github.com/cenkalti/backoff"
+  version = "3.0.0"
+
+[[constraint]]
+  name = "github.com/coreos/etcd"
+  version = "3.4.1"
+
+[[constraint]]
+  branch = "bump_17.09"
   name = "github.com/docker/libnetwork"
-  branch = "master"
 
 [[constraint]]
-  name = "github.com/sirupsen/logrus"
-  version = "1.0.4"
+  name = "github.com/gogo/protobuf"
+  version = "1.3.0"
 
 [[constraint]]
   name = "github.com/golang/protobuf"
-  version = "1.0.0"
+  version = "1.3.2"
+
+[[constraint]]
+  name = "github.com/onrik/logrus"
+  version = "0.4.1"
+
+[[constraint]]
+  name = "github.com/onsi/ginkgo"
+  version = "1.10.1"
+
+[[constraint]]
+  name = "github.com/onsi/gomega"
+  version = "1.7.0"
+
+[[constraint]]
+  name = "github.com/prometheus/client_golang"
+  version = "1.1.0"
+
+[[constraint]]
+  name = "github.com/sirupsen/logrus"
+  version = "1.4.2"
+
+[[constraint]]
+  name = "github.com/spf13/cobra"
+  version = "0.0.5"
+
+[[constraint]]
+  name = "github.com/spf13/pflag"
+  version = "1.0.5"
 
 [[constraint]]
   name = "github.com/stretchr/testify"
-  version = "1.2.1"
-
-[[constraint]]
-  branch = "master"
-  name = "golang.org/x/net"
+  version = "1.4.0"
 
 [[constraint]]
   name = "google.golang.org/grpc"
-  version = "1.9.2"
+  version = "1.24.0"
 
 [prune]
   go-tests = true
   unused-packages = true
-
-[[constraint]]
-  name = "github.com/coreos/etcd"
-  version = "3.3.0"
-
-[[constraint]]
-  name = "github.com/spf13/cobra"
-  version = "0.0.1"
-
-[[constraint]]
-  name = "github.com/onsi/ginkgo"
-  version = "1.4.0"
-
-[[constraint]]
-  branch = "master"
-  name = "github.com/onrik/logrus"
