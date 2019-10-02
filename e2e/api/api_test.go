@@ -448,14 +448,14 @@ func testApi(storeBackend string) {
 					ServiceID: service.Id,
 					Key:       validServerKey,
 					Config: &types.RealServer_Config{
-						Weight: &wrappers.UInt32Value{4},
+						Weight: &wrappers.UInt32Value{Value: 4},
 					},
 				}),
 				Entry("set weight to 0", &types.RealServer{
 					ServiceID: service.Id,
 					Key:       validServerKey,
 					Config: &types.RealServer_Config{
-						Weight: &wrappers.UInt32Value{0},
+						Weight: &wrappers.UInt32Value{Value: 0},
 					},
 				}),
 				Entry("change forward", &types.RealServer{

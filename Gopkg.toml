@@ -66,10 +66,6 @@
   version = "1.4.2"
 
 [[constraint]]
-  name = "github.com/sky-uk/merlin"
-  version = "0.2.1"
-
-[[constraint]]
   name = "github.com/spf13/cobra"
   version = "0.0.5"
 

@@ -15,7 +15,7 @@ travis : check build-release docker
 
 setup :
 	@echo "== setup"
-	go get -u github.com/golang/lint/golint
+	go get -u golang.org/x/lint/golint
 	go get -u golang.org/x/tools/cmd/goimports
 	go get -u github.com/golang/dep/cmd/dep
 	go get -u github.com/golang/protobuf/protoc-gen-go

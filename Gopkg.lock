@@ -284,10 +284,9 @@
   version = "v1.4.2"
 
 [[projects]]
-  digest = "1:381074475bd28b92f146b1bdb2215087cc4735e884fd386db2a4f894121d1311"
+  digest = "1:11c3244c927c07982227f49ce56c8c9a579f6ea4ed1db1da2ecefca14d9693bf"
   name = "github.com/sky-uk/merlin"
   packages = [
-    "e2e",
     "ipvs",
     "reconciler",
     "reconciler/healthchecks",
@@ -569,13 +568,6 @@
     "github.com/onsi/gomega",
     "github.com/prometheus/client_golang/prometheus/promhttp",
     "github.com/sirupsen/logrus",
-    "github.com/sky-uk/merlin/e2e",
-    "github.com/sky-uk/merlin/ipvs",
-    "github.com/sky-uk/merlin/reconciler",
-    "github.com/sky-uk/merlin/reconciler/healthchecks",
-    "github.com/sky-uk/merlin/server",
-    "github.com/sky-uk/merlin/store",
-    "github.com/sky-uk/merlin/types",
     "github.com/spf13/cobra",
     "github.com/spf13/pflag",
     "github.com/stretchr/testify/mock",
