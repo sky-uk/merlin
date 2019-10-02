@@ -442,7 +442,7 @@ func testApi(storeBackend string) {
 				if update.GetConfig().GetWeight() != nil {
 					server.Config.Weight = update.Config.Weight
 				}
-				Expect(server).To(Equal(actualServer))
+				Expect(proto.Equal(server, actualServer))
 			},
 				Entry("change weight", &types.RealServer{
 					ServiceID: service.Id,
