@@ -1,3 +1,11 @@
+# Project End-of-Life
+
+The Merlin project has reached its end-of-life. No further pull requests can be opened or issues can be raised.
+
+Thank-you for your interest in Merlin.
+
+<hr/>
+
 [![build](https://travis-ci.org/sky-uk/merlin.svg?branch=master)](https://travis-ci.org/sky-uk/merlin)
 
 # merlin
