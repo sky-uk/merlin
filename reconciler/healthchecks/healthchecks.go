@@ -45,7 +45,7 @@ type Checker interface {
 
 type checkKey struct {
 	serviceID string
-	key       types.RealServer_Key
+	key       *types.RealServer_Key
 }
 
 type checker struct {
@@ -87,7 +87,7 @@ func (c *checker) IsDown(serviceID string, key *types.RealServer_Key) bool {
 	c.Lock()
 	defer c.Unlock()
 
-	checkKey := checkKey{serviceID: serviceID, key: *key}
+	checkKey := checkKey{serviceID: serviceID, key: key}
 	check, ok := c.checks[checkKey]
 	if !ok {
 		panic(fmt.Sprintf("bug: health check not added yet: %v", checkKey))
@@ -141,7 +141,7 @@ func (c *checker) SetHealthCheck(serviceID string, key *types.RealServer_Key, he
 		transitionFn:    fn,
 	}
 
-	checkKey := checkKey{serviceID: serviceID, key: *key}
+	checkKey := checkKey{serviceID: serviceID, key: key}
 	if origCheck, ok := c.checks[checkKey]; ok {
 
 		origCheck.state.Lock()
@@ -187,7 +187,7 @@ func (c *checker) RemHealthCheck(serviceID string, key *types.RealServer_Key) {
 	c.Lock()
 	defer c.Unlock()
 
-	checkKey := checkKey{serviceID: serviceID, key: *key}
+	checkKey := checkKey{serviceID: serviceID, key: key}
 	check, ok := c.checks[checkKey]
 	if !ok {
 		// nothing to remove
@@ -206,7 +206,7 @@ func (c *checker) Stop() {
 	c.Unlock()
 
 	for _, key := range keys {
-		c.RemHealthCheck(key.serviceID, &key.key)
+		c.RemHealthCheck(key.serviceID, key.key)
 	}
 }
 
