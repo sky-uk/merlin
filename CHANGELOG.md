@@ -1,3 +1,7 @@
+# 0.2.2
+
+* checkKey.key type modified to match generated code for `proto3` syntax
+
 # 0.2.1
 
 * Update alpine image to fix CVE-2019-5021.
